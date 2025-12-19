@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Bun
+bun.lock
+
+# Claude
+.claude/
+
+# OS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# User data (created at runtime)
+# ~/.config/mud-client/ is used instead
