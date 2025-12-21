@@ -40,6 +40,7 @@ class MudClient {
   // Output buffering to avoid display corruption
   private outputBuffer = "";
   private outputTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastColorState = ""; // Track last SGR sequence for color continuity
 
   // Waiting for user to acknowledge disconnect
   private waitingForDisconnectAck = false;
@@ -374,6 +375,19 @@ class MudClient {
   private flushOutput(): void {
     if (!this.outputBuffer) return;
 
+    // Only flush complete lines - find last newline
+    const lastNewline = this.outputBuffer.lastIndexOf("\n");
+    if (lastNewline === -1) {
+      // No complete lines yet, keep buffering
+      this.outputTimer = null;
+      return;
+    }
+
+    // Split into complete lines and partial remainder
+    const toFlush = this.outputBuffer.slice(0, lastNewline + 1);
+    this.outputBuffer = this.outputBuffer.slice(lastNewline + 1);
+    this.outputTimer = null;
+
     const termHeight = process.stdout.rows || 24;
 
     // Save cursor, move to scroll region, output, restore cursor
@@ -383,17 +397,19 @@ class MudClient {
     // The scroll region will auto-scroll when we write
     process.stdout.write(CURSOR_TO(termHeight - 1, 1));
 
-    // Write output - let terminal handle scrolling within the region
-    process.stdout.write(this.outputBuffer);
-
-    // Ensure we end on a new line
-    if (!this.outputBuffer.endsWith("\n") && !this.outputBuffer.endsWith("\r")) {
-      process.stdout.write("\r\n");
+    // Restore previous color state before writing
+    if (this.lastColorState) {
+      process.stdout.write(this.lastColorState);
     }
 
-    // Clear buffer
-    this.outputBuffer = "";
-    this.outputTimer = null;
+    // Write output - let terminal handle scrolling within the region
+    process.stdout.write(toFlush);
+
+    // Extract and save last SGR (color) sequence for next flush
+    const sgrMatches = toFlush.match(/\x1b\[[0-9;]*m/g);
+    if (sgrMatches) {
+      this.lastColorState = sgrMatches[sgrMatches.length - 1];
+    }
 
     // Restore cursor and redraw input on the last line
     process.stdout.write(RESTORE_CURSOR);
