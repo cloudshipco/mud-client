@@ -734,8 +734,13 @@ class MudClient {
     };
     const movement = movementMap[key];
     if (movement && this.connected) {
+      // Echo movement command like a typed command
+      this.input = movement;
+      this.cursorPos = movement.length;
+      this.inputSelected = true;
+      process.stdout.write("\r\n");
       this.client.send(movement);
-      // Don't add to input - just send movement
+      this.redrawInput();
       return;
     }
 
