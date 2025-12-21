@@ -715,18 +715,22 @@ class MudClient {
       return;
     }
 
-    // Shift+vim-style movement keys (uppercase letters)
-    // H=west, J=south, K=east, U=north
-    // Y=nw, I=ne, N=sw, M=se
+    // Shift+roguelike movement keys (classic NetHack/Vim layout)
+    // H=west, L=east, K=north, J=south
+    // Y=nw, U=ne, B=sw, N=se
+    // < >= up/down, . = look
     const movementMap: Record<string, string> = {
       H: "w",
+      L: "e",
+      K: "n",
       J: "s",
-      K: "e",
-      U: "n",
       Y: "nw",
-      I: "ne",
-      N: "sw",
-      M: "se",
+      U: "ne",
+      B: "sw",
+      N: "se",
+      "<": "u",
+      ">": "d",
+      ".": "look",
     };
     const movement = movementMap[key];
     if (movement && this.connected) {
@@ -924,9 +928,10 @@ class MudClient {
         this.echo("  Ctrl+L - Clear screen");
         this.echo("  Ctrl+C - Disconnect (or exit if disconnected)");
         this.echo("");
-        this.echo("Movement (Shift+key):");
-        this.echo("  H/J/K/U - West/South/East/North");
-        this.echo("  Y/I/N/M - NW/NE/SW/SE");
+        this.echo("Movement (Shift+key, roguelike layout):");
+        this.echo("  H/L/K/J - West/East/North/South");
+        this.echo("  Y/U/B/N - NW/NE/SW/SE");
+        this.echo("  </> - Up/Down, . = look");
       } else {
         this.echo(`Unknown command: ${command}`);
       }
