@@ -561,9 +561,7 @@ class MudClient {
 
     // Ctrl+U - clear line
     if (key === "\x15") {
-      this.input = "";
-      this.cursorPos = 0;
-      this.inputSelected = false;
+      this.clearInput();
       this.redrawInput();
       return;
     }
@@ -571,10 +569,7 @@ class MudClient {
     // Ctrl+W - delete word
     if (key === "\x17") {
       if (this.inputSelected) {
-        // Clear entire input when selected
-        this.input = "";
-        this.cursorPos = 0;
-        this.inputSelected = false;
+        this.clearInput();
       } else {
         const beforeCursor = this.input.slice(0, this.cursorPos);
         const afterCursor = this.input.slice(this.cursorPos);
@@ -589,16 +584,10 @@ class MudClient {
 
     // Enter
     if (key === "\r" || key === "\n") {
-      // Echo command to scroll region before sending
       if (this.input.trim()) {
-        const termHeight = process.stdout.rows || 24;
-        process.stdout.write(SAVE_CURSOR);
-        process.stdout.write(CURSOR_TO(termHeight - 1, 1));
-        process.stdout.write("> " + this.input + "\r\n");
-        process.stdout.write(RESTORE_CURSOR);
+        this.echoCommand(this.input);
       }
       this.handleCommand(this.input);
-      // Keep input and select it for easy resend/replace
       if (this.input) {
         this.inputSelected = true;
         this.cursorPos = this.input.length;
@@ -610,10 +599,7 @@ class MudClient {
     // Backspace
     if (key === "\x7f" || key === "\b") {
       if (this.inputSelected) {
-        // Clear entire input when selected
-        this.input = "";
-        this.cursorPos = 0;
-        this.inputSelected = false;
+        this.clearInput();
         this.redrawInput();
       } else if (this.cursorPos > 0) {
         this.input = this.input.slice(0, this.cursorPos - 1) + this.input.slice(this.cursorPos);
@@ -707,10 +693,7 @@ class MudClient {
       // Delete
       if (seq === "3~") {
         if (this.inputSelected) {
-          // Clear entire input when selected
-          this.input = "";
-          this.cursorPos = 0;
-          this.inputSelected = false;
+          this.clearInput();
           this.redrawInput();
         } else if (this.cursorPos < this.input.length) {
           this.input = this.input.slice(0, this.cursorPos) + this.input.slice(this.cursorPos + 1);
@@ -741,18 +724,7 @@ class MudClient {
     };
     const movement = movementMap[key];
     if (movement && this.connected) {
-      // Echo movement command to scroll region
-      const termHeight = process.stdout.rows || 24;
-      process.stdout.write(SAVE_CURSOR);
-      process.stdout.write(CURSOR_TO(termHeight - 1, 1));
-      process.stdout.write("> " + movement + "\r\n");
-      process.stdout.write(RESTORE_CURSOR);
-      // Send and update input
-      this.client.send(movement);
-      this.input = movement;
-      this.cursorPos = movement.length;
-      this.inputSelected = true;
-      this.redrawInput();
+      this.sendAndEcho(movement);
       return;
     }
 
@@ -964,6 +936,32 @@ class MudClient {
     } else {
       this.echo("Not connected. Use /connect <host> [port] or /menu");
     }
+  }
+
+  // Helper: echo command to scroll region with > prefix
+  private echoCommand(cmd: string): void {
+    const termHeight = process.stdout.rows || 24;
+    process.stdout.write(SAVE_CURSOR);
+    process.stdout.write(CURSOR_TO(termHeight - 1, 1));
+    process.stdout.write("> " + cmd + "\r\n");
+    process.stdout.write(RESTORE_CURSOR);
+  }
+
+  // Helper: clear input and deselect
+  private clearInput(): void {
+    this.input = "";
+    this.cursorPos = 0;
+    this.inputSelected = false;
+  }
+
+  // Helper: send command, echo it, update input state
+  private sendAndEcho(cmd: string): void {
+    this.echoCommand(cmd);
+    this.client.send(cmd);
+    this.input = cmd;
+    this.cursorPos = cmd.length;
+    this.inputSelected = true;
+    this.redrawInput();
   }
 
   private redrawInput(): void {
