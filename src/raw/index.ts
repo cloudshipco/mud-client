@@ -32,6 +32,7 @@ class MudClient {
 
   private input = "";
   private cursorPos = 0;
+  private inputSelected = false; // Entire input is selected (after sending command)
   private wordBuffer: Set<string> = new Set();
   private connected = false;
   private promptText = "> ";
@@ -560,37 +561,47 @@ class MudClient {
 
     // Ctrl+U - clear line
     if (key === "\x15") {
-      this.input = "";
-      this.cursorPos = 0;
+      this.clearInput();
       this.redrawInput();
       return;
     }
 
     // Ctrl+W - delete word
     if (key === "\x17") {
-      const beforeCursor = this.input.slice(0, this.cursorPos);
-      const afterCursor = this.input.slice(this.cursorPos);
-      const trimmed = beforeCursor.trimEnd();
-      const lastSpace = trimmed.lastIndexOf(" ");
-      this.input = (lastSpace === -1 ? "" : trimmed.slice(0, lastSpace + 1)) + afterCursor;
-      this.cursorPos = lastSpace === -1 ? 0 : lastSpace + 1;
+      if (this.inputSelected) {
+        this.clearInput();
+      } else {
+        const beforeCursor = this.input.slice(0, this.cursorPos);
+        const afterCursor = this.input.slice(this.cursorPos);
+        const trimmed = beforeCursor.trimEnd();
+        const lastSpace = trimmed.lastIndexOf(" ");
+        this.input = (lastSpace === -1 ? "" : trimmed.slice(0, lastSpace + 1)) + afterCursor;
+        this.cursorPos = lastSpace === -1 ? 0 : lastSpace + 1;
+      }
       this.redrawInput();
       return;
     }
 
     // Enter
     if (key === "\r" || key === "\n") {
-      process.stdout.write("\r\n");
+      if (this.input.trim()) {
+        this.echoCommand(this.input);
+      }
       this.handleCommand(this.input);
-      this.input = "";
-      this.cursorPos = 0;
+      if (this.input) {
+        this.inputSelected = true;
+        this.cursorPos = this.input.length;
+      }
       this.redrawInput();
       return;
     }
 
     // Backspace
     if (key === "\x7f" || key === "\b") {
-      if (this.cursorPos > 0) {
+      if (this.inputSelected) {
+        this.clearInput();
+        this.redrawInput();
+      } else if (this.cursorPos > 0) {
         this.input = this.input.slice(0, this.cursorPos - 1) + this.input.slice(this.cursorPos);
         this.cursorPos--;
         this.redrawInput();
@@ -600,6 +611,7 @@ class MudClient {
 
     // Tab - completion
     if (key === "\t") {
+      this.inputSelected = false;
       const words = Array.from(this.wordBuffer);
       const completed = this.tabCompletion.complete(this.input, words);
       if (completed !== this.input) {
@@ -616,6 +628,7 @@ class MudClient {
 
       // Up arrow - history previous
       if (seq === "A") {
+        this.inputSelected = false;
         const prev = this.history.previous();
         if (prev !== null) {
           this.input = prev;
@@ -627,6 +640,7 @@ class MudClient {
 
       // Down arrow - history next
       if (seq === "B") {
+        this.inputSelected = false;
         const next = this.history.next();
         this.input = next || "";
         this.cursorPos = this.input.length;
@@ -636,7 +650,11 @@ class MudClient {
 
       // Left arrow
       if (seq === "D") {
-        if (this.cursorPos > 0) {
+        if (this.inputSelected) {
+          this.inputSelected = false;
+          this.cursorPos = 0; // Move to start when deselecting
+          this.redrawInput();
+        } else if (this.cursorPos > 0) {
           this.cursorPos--;
           this.redrawInput();
         }
@@ -645,7 +663,11 @@ class MudClient {
 
       // Right arrow
       if (seq === "C") {
-        if (this.cursorPos < this.input.length) {
+        if (this.inputSelected) {
+          this.inputSelected = false;
+          this.cursorPos = this.input.length; // Move to end when deselecting
+          this.redrawInput();
+        } else if (this.cursorPos < this.input.length) {
           this.cursorPos++;
           this.redrawInput();
         }
@@ -654,6 +676,7 @@ class MudClient {
 
       // Home
       if (seq === "H" || seq === "1~") {
+        this.inputSelected = false;
         this.cursorPos = 0;
         this.redrawInput();
         return;
@@ -661,6 +684,7 @@ class MudClient {
 
       // End
       if (seq === "F" || seq === "4~") {
+        this.inputSelected = false;
         this.cursorPos = this.input.length;
         this.redrawInput();
         return;
@@ -668,7 +692,10 @@ class MudClient {
 
       // Delete
       if (seq === "3~") {
-        if (this.cursorPos < this.input.length) {
+        if (this.inputSelected) {
+          this.clearInput();
+          this.redrawInput();
+        } else if (this.cursorPos < this.input.length) {
           this.input = this.input.slice(0, this.cursorPos) + this.input.slice(this.cursorPos + 1);
           this.redrawInput();
         }
@@ -678,16 +705,47 @@ class MudClient {
       return;
     }
 
+    // Shift+roguelike movement keys (classic NetHack/Vim layout)
+    // H=west, L=east, K=north, J=south
+    // Y=nw, U=ne, B=sw, N=se
+    // < >= up/down, . = look
+    const movementMap: Record<string, string> = {
+      H: "w",
+      L: "e",
+      K: "n",
+      J: "s",
+      Y: "nw",
+      U: "ne",
+      B: "sw",
+      N: "se",
+      "<": "u",
+      ">": "d",
+      ":": "look",
+    };
+    const movement = movementMap[key];
+    if (movement && this.connected) {
+      this.sendAndEcho(movement);
+      return;
+    }
+
     // Regular printable character
     if (code >= 32 && code < 127) {
-      this.input = this.input.slice(0, this.cursorPos) + key + this.input.slice(this.cursorPos);
-      this.cursorPos++;
+      if (this.inputSelected) {
+        // Replace entire input when selected
+        this.input = key;
+        this.cursorPos = 1;
+        this.inputSelected = false;
+      } else {
+        this.input = this.input.slice(0, this.cursorPos) + key + this.input.slice(this.cursorPos);
+        this.cursorPos++;
+      }
       this.redrawInput();
     }
   }
 
   private enterReverseSearch(): void {
     this.inReverseSearch = true;
+    this.inputSelected = false;
     this.savedInput = this.input;
     this.searchQuery = "";
     this.searchResults = this.history.getAll().slice(-50).reverse();
@@ -858,6 +916,11 @@ class MudClient {
         this.echo("  Up/Down - Navigate history");
         this.echo("  Ctrl+L - Clear screen");
         this.echo("  Ctrl+C - Disconnect (or exit if disconnected)");
+        this.echo("");
+        this.echo("Movement (Shift+key, roguelike layout):");
+        this.echo("  H/L/K/J - West/East/North/South");
+        this.echo("  Y/U/B/N - NW/NE/SW/SE");
+        this.echo("  </> - Up/Down, ; = look");
       } else {
         this.echo(`Unknown command: ${command}`);
       }
@@ -875,6 +938,32 @@ class MudClient {
     }
   }
 
+  // Helper: echo command to scroll region with > prefix
+  private echoCommand(cmd: string): void {
+    const termHeight = process.stdout.rows || 24;
+    process.stdout.write(SAVE_CURSOR);
+    process.stdout.write(CURSOR_TO(termHeight - 1, 1));
+    process.stdout.write("> " + cmd + "\r\n");
+    process.stdout.write(RESTORE_CURSOR);
+  }
+
+  // Helper: clear input and deselect
+  private clearInput(): void {
+    this.input = "";
+    this.cursorPos = 0;
+    this.inputSelected = false;
+  }
+
+  // Helper: send command, echo it, update input state
+  private sendAndEcho(cmd: string): void {
+    this.echoCommand(cmd);
+    this.client.send(cmd);
+    this.input = cmd;
+    this.cursorPos = cmd.length;
+    this.inputSelected = true;
+    this.redrawInput();
+  }
+
   private redrawInput(): void {
     if (this.appState !== "client") return;
 
@@ -886,9 +975,14 @@ class MudClient {
     // Move to last row and clear it
     process.stdout.write(CURSOR_TO(termHeight, 1) + CLEAR_LINE);
 
-    // Write prompt + input
-    const inputLine = this.promptText + this.input;
-    process.stdout.write(inputLine);
+    // Write prompt + input (with reverse video if selected)
+    process.stdout.write(this.promptText);
+    if (this.inputSelected && this.input) {
+      // Reverse video for selected text
+      process.stdout.write(`\x1b[7m${this.input}\x1b[27m`);
+    } else {
+      process.stdout.write(this.input);
+    }
 
     // Write right-aligned status in gray
     process.stdout.write(CURSOR_TO_COL(statusCol));
