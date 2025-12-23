@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import { TelnetClient } from "../connection/TelnetClient";
 import { CommandHistory } from "../input/CommandHistory";
 import { TabCompletion } from "../input/TabCompletion";
@@ -59,6 +60,10 @@ class MudClient {
   private currentConnection: ConnectionConfig | null = null;
   private currentCharacter: CharacterConfig | null = null;
 
+  // Debug mode - logs raw data to file
+  private debugMode = false;
+  private debugLogStream: fs.WriteStream | null = null;
+
   // Last session for reconnect
   private lastConnection: ConnectionConfig | null = null;
   private lastCharacter: CharacterConfig | null = null;
@@ -74,12 +79,24 @@ class MudClient {
 
     this.setupTelnet();
     this.setupInput();
+    this.setupResizeHandler();
+  }
+
+  private setupResizeHandler(): void {
+    process.stdout.on("resize", () => {
+      if (this.appState === "client") {
+        // Re-establish scroll region with new terminal size
+        this.setupScrollRegion();
+        this.redrawInput();
+      }
+    });
   }
 
   async start(autoHost?: string, autoPort?: number): Promise<void> {
     if (autoHost) {
       // Auto-connect mode: skip menu
       this.appState = "client";
+      this.setupScrollRegion();
       this.echo(`Connecting to ${autoHost}:${autoPort || 23}...`);
       this.client.connect(autoHost, autoPort || 23);
       this.redrawInput();
@@ -344,8 +361,9 @@ class MudClient {
 
   private setupScrollRegion(): void {
     const termHeight = process.stdout.rows || 24;
-    // Set scroll region to all but the last line
-    process.stdout.write(SET_SCROLL_REGION(1, termHeight - 1));
+    // Set scroll region to all but the last 2 lines (divider + input)
+    // Divider at termHeight-1 is outside scroll region and won't scroll
+    process.stdout.write(SET_SCROLL_REGION(1, termHeight - 2));
     // Move cursor to top of scroll region
     process.stdout.write(CURSOR_HOME);
   }
@@ -391,10 +409,19 @@ class MudClient {
       return;
     }
 
-    // Split into complete lines and partial remainder
+    // Split into complete lines, keep partial remainder for next flush
     let toFlush = this.outputBuffer.slice(0, lastNewline + 1);
     this.outputBuffer = this.outputBuffer.slice(lastNewline + 1);
     this.outputTimer = null;
+
+    // Debug: log raw buffer content before processing
+    if (this.debugMode && this.debugLogStream) {
+      const hex = Buffer.from(toFlush).toString("hex");
+      const readable = toFlush.replace(/[\x00-\x1f]/g, (c) => `<${c.charCodeAt(0).toString(16)}>`);
+      this.debugLogStream.write(`[FLUSH RAW] len=${toFlush.length}\n`);
+      this.debugLogStream.write(`[FLUSH HEX] ${hex}\n`);
+      this.debugLogStream.write(`[FLUSH TXT] ${readable}\n`);
+    }
 
     // Add timestamps if enabled
     const timestampMode = this.settings.get("timestamps");
@@ -410,16 +437,44 @@ class MudClient {
 
     const termHeight = process.stdout.rows || 24;
 
+    // Ensure scroll region is correct (defensive - prevents drift)
+    process.stdout.write(SET_SCROLL_REGION(1, termHeight - 2));
+
     // Save cursor, move to scroll region, output, restore cursor
     process.stdout.write(SAVE_CURSOR);
 
-    // Move to bottom of scroll region (row termHeight-1)
-    // The scroll region will auto-scroll when we write
-    process.stdout.write(CURSOR_TO(termHeight - 1, 1));
+    // Move to bottom of scroll region (row termHeight-2)
+    process.stdout.write(CURSOR_TO(termHeight - 2, 1));
+
+    // Scroll first by writing a newline, so new content appears below existing
+    process.stdout.write("\n");
+
+    // Strip trailing newlines since we handle scrolling ourselves
+    toFlush = toFlush.replace(/\n+$/, "");
 
     // Restore previous color state before writing
     if (this.lastColorState) {
       process.stdout.write(this.lastColorState);
+    }
+
+    // Strip bare CR characters - they cause display corruption with scroll regions
+    // (CRLF has already been normalized to LF by TelnetClient)
+    toFlush = toFlush.replace(/\r/g, "");
+
+    // Strip ANSI cursor positioning sequences that would break scroll region layout
+    // Keep SGR (color/style) sequences ending in 'm', strip positioning ones:
+    // - ESC[H, ESC[;H, ESC[row;colH - cursor position
+    // - ESC[nA/B/C/D - cursor up/down/forward/back
+    // - ESC[nG - cursor to column
+    // - ESC[s/u - save/restore cursor (conflicts with our own)
+    // - ESC[nJ/K - erase display/line
+    // - ESC[r, ESC[n;mr - scroll region (would corrupt our layout)
+    toFlush = toFlush.replace(/\x1b\[[0-9;]*[HABCDGJKsur]/g, "");
+
+    // Debug: log after stripping
+    if (this.debugMode && this.debugLogStream) {
+      this.debugLogStream.write(`[FLUSH OUT] len=${toFlush.length}\n`);
+      this.debugLogStream.write(`---\n`);
     }
 
     // Write output - let terminal handle scrolling within the region
@@ -716,6 +771,29 @@ class MudClient {
     // Ctrl+L - clear screen
     if (key === "\x0c") {
       process.stdout.write(CLEAR_SCREEN + CURSOR_HOME);
+      this.redrawInput();
+      return;
+    }
+
+    // Ctrl+A - start of line
+    if (key === "\x01") {
+      this.cursorPos = 0;
+      this.inputSelected = false;
+      this.redrawInput();
+      return;
+    }
+
+    // Ctrl+E - end of line
+    if (key === "\x05") {
+      this.cursorPos = this.input.length;
+      this.inputSelected = false;
+      this.redrawInput();
+      return;
+    }
+
+    // Ctrl+K - kill to end of line
+    if (key === "\x0b") {
+      this.input = this.input.slice(0, this.cursorPos);
       this.redrawInput();
       return;
     }
@@ -1114,6 +1192,7 @@ class MudClient {
         this.echo("  /config - Show all settings");
         this.echo("  /set <key> <value> - Change a setting");
         this.echo("  /clear - Clear screen");
+        this.echo("  /debug - Toggle debug logging to /tmp/mud-client-debug.log");
         this.echo("  /exit - Exit client");
         this.echo("");
         this.echo("Keyboard shortcuts:");
@@ -1137,6 +1216,23 @@ class MudClient {
           this.echo(`  ${key} = ${value}`);
           this.echo(`    ${description}`);
           this.echo(`    Values: ${validValues.join(", ")}`);
+        }
+      } else if (command === "debug") {
+        this.debugMode = !this.debugMode;
+        if (this.debugMode) {
+          const logPath = "/tmp/mud-client-debug.log";
+          this.debugLogStream = fs.createWriteStream(logPath, { flags: "a" });
+          this.debugLogStream.write(`\n=== Debug session started: ${new Date().toISOString()} ===\n`);
+          this.client.setDebug(true, this.debugLogStream);
+          this.echo(`Debug mode ON - logging to ${logPath}`);
+        } else {
+          this.client.setDebug(false);
+          if (this.debugLogStream) {
+            this.debugLogStream.write(`=== Debug session ended: ${new Date().toISOString()} ===\n`);
+            this.debugLogStream.end();
+            this.debugLogStream = null;
+          }
+          this.echo("Debug mode OFF");
         }
       } else if (command === "set") {
         const key = parts[1];
@@ -1184,10 +1280,13 @@ class MudClient {
   private echoCommand(cmd: string): void {
     if (!this.settings.get("echoCommands")) return;
     const termHeight = process.stdout.rows || 24;
+    process.stdout.write(SET_SCROLL_REGION(1, termHeight - 2));
     process.stdout.write(SAVE_CURSOR);
-    process.stdout.write(CURSOR_TO(termHeight - 1, 1));
-    process.stdout.write("> " + cmd + "\r\n");
+    process.stdout.write(CURSOR_TO(termHeight - 2, 1));
+    process.stdout.write("\n"); // Scroll first
+    process.stdout.write("\x1b[90m> " + cmd + "\x1b[0m"); // Dark grey
     process.stdout.write(RESTORE_CURSOR);
+    this.redrawInput();
   }
 
   // Helper: clear input and deselect
@@ -1217,11 +1316,15 @@ class MudClient {
     const termWidth = process.stdout.columns || 80;
     const termHeight = process.stdout.rows || 24;
 
+    // Draw thin dark grey divider line on line termHeight-1
+    process.stdout.write(CURSOR_TO(termHeight - 1, 1));
+    process.stdout.write(`\x1b[38;5;238m${"─".repeat(termWidth)}\x1b[0m`);
+
     // Move to last row and clear it
     process.stdout.write(CURSOR_TO(termHeight, 1) + CLEAR_LINE);
 
-    // Write prompt + input (with reverse video if selected)
-    process.stdout.write(this.promptText);
+    // Write prompt in dark grey + input (with reverse video if selected)
+    process.stdout.write(`\x1b[38;5;238m${this.promptText}\x1b[0m`);
     if (this.inputSelected && this.input) {
       // Reverse video for selected text
       process.stdout.write(`\x1b[7m${this.input}\x1b[27m`);
@@ -1254,16 +1357,17 @@ class MudClient {
     // Word wrap the message
     const lines = this.wordWrap(message, availableWidth);
 
-    // Save cursor, move to scroll region
+    // Ensure scroll region is set, save cursor, move to scroll region bottom
+    process.stdout.write(SET_SCROLL_REGION(1, termHeight - 2));
     process.stdout.write(SAVE_CURSOR);
-    process.stdout.write(CURSOR_TO(termHeight - 1, 1));
+    process.stdout.write(CURSOR_TO(termHeight - 2, 1));
 
     // Print first line with prefix, continuation lines with indent
     for (let i = 0; i < lines.length; i++) {
       if (i === 0) {
-        process.stdout.write(prefix + lines[i] + "\r\n");
+        process.stdout.write(prefix + lines[i] + "\n");
       } else {
-        process.stdout.write(" ".repeat(prefixLen) + lines[i] + "\r\n");
+        process.stdout.write(" ".repeat(prefixLen) + lines[i] + "\n");
       }
     }
 
@@ -1337,6 +1441,7 @@ class MudClient {
         "/config",
         "/set",
         "/clear",
+        "/debug",
         "/exit",
         "/help",
       ];
