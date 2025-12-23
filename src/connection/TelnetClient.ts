@@ -33,9 +33,11 @@ export class TelnetClient extends EventEmitter {
   private state: TelnetState = "disconnected";
   private buffer = Buffer.alloc(0);
   private debug = false;
+  private debugStream: NodeJS.WritableStream | null = null;
 
-  setDebug(enabled: boolean): void {
+  setDebug(enabled: boolean, stream?: NodeJS.WritableStream): void {
     this.debug = enabled;
+    this.debugStream = stream || null;
   }
 
   private normalizeLineEndings(text: string): string {
@@ -118,11 +120,11 @@ export class TelnetClient extends EventEmitter {
   }
 
   private handleData(data: Buffer): void {
-    // Debug logging - output raw bytes to stderr
-    if (this.debug) {
+    // Debug logging - output raw bytes to log stream
+    if (this.debug && this.debugStream) {
       const hex = data.toString("hex");
       const readable = data.toString("utf8").replace(/[\x00-\x1f]/g, ".");
-      process.stderr.write(`[TELNET RAW] ${hex} | ${readable}\n`);
+      this.debugStream.write(`[TELNET RAW] ${hex} | ${readable}\n`);
     }
 
     // Concatenate with existing buffer
