@@ -1156,8 +1156,8 @@ class MudClient {
         N: "se",
         "<": "u",
         ">": "d",
-        "{": "u",
-        "}": "d",
+        "{": "d",
+        "}": "u",
         ":": "look",
       };
       const movement = movementMap[key];
