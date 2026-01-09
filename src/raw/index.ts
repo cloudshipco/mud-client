@@ -1156,6 +1156,8 @@ class MudClient {
         N: "se",
         "<": "u",
         ">": "d",
+        "{": "u",
+        "}": "d",
         ":": "look",
       };
       const movement = movementMap[key];
@@ -1736,7 +1738,7 @@ class MudClient {
         this.echo("Movement (Shift+key, roguelike layout):");
         this.echo("  H/L/K/J - West/East/North/South");
         this.echo("  Y/U/B/N - NW/NE/SW/SE");
-        this.echo("  </> - Up/Down, ; = look");
+        this.echo("  {/} or </> - Up/Down, : = look");
       } else if (command === "config") {
         this.echo("Settings:");
         const settings = this.settings.getAll();
