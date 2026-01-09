@@ -561,8 +561,6 @@ class MudClient {
     const panesEnabled = this.totalPaneHeight > 0;
 
     for (const line of lines) {
-      if (line.length === 0) continue;
-
       // Route to panes if any are enabled
       if (panesEnabled) {
         // Strip ANSI codes for classification only
