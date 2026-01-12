@@ -11,6 +11,7 @@ import { SettingsManager } from "../settings/Settings";
 import { PaneManager } from "../panes/PaneManager";
 import { PaneConfigStore } from "../panes/PaneConfigStore";
 import { MessageClassifier } from "../messages/MessageClassifier";
+import { Updater } from "../update/Updater";
 
 // ANSI escape codes
 const ESC = "\x1b";
@@ -38,6 +39,7 @@ class MudClient {
   private paneConfig: PaneConfigStore;
   private paneManager: PaneManager;
   private classifier: MessageClassifier;
+  private updater: Updater;
 
   // Total height of all enabled panes (0 if none enabled)
   private get totalPaneHeight(): number {
@@ -103,6 +105,7 @@ class MudClient {
     this.paneConfig = new PaneConfigStore();
     this.paneManager = new PaneManager(this.paneConfig.getPanes());
     this.classifier = new MessageClassifier(this.paneConfig.getClassifiers());
+    this.updater = new Updater();
 
     this.setupTelnet();
     this.setupInput();
@@ -1716,6 +1719,8 @@ class MudClient {
         this.echo("  /set <key> <value> - Change a setting");
         this.echo("  /clear - Clear screen");
         this.echo("  /debug - Toggle debug logging to /tmp/mud-client-debug.log");
+        this.echo("  /version - Show version and environment");
+        this.echo("  /update [check] - Check for and apply updates");
         this.echo("  /exit - Exit client");
         this.echo("");
         this.echo("Keyboard shortcuts:");
@@ -1881,6 +1886,19 @@ class MudClient {
           this.echo("       /pane <id> set <setting> <value>");
           this.echo("       /panes - list all panes");
         }
+      } else if (command === "version") {
+        const version = this.updater.getCurrentVersion();
+        const env = this.updater.detectEnvironment();
+        this.echo(`mud-client v${version}`);
+        this.echo(`Environment: ${env}`);
+        if (env === "git") {
+          this.echo("Update via: /update (runs git pull)");
+        } else if (env === "binary") {
+          this.echo("Update via: /update (downloads new binary)");
+        }
+      } else if (command === "update") {
+        const checkOnly = parts[1] === "check";
+        this.handleUpdate(checkOnly);
       } else {
         this.echo(`Unknown command: ${command}`);
       }
@@ -2065,6 +2083,63 @@ class MudClient {
 
     process.stdout.write(RESTORE_CURSOR);
     this.redrawInput();
+  }
+
+  private async handleUpdate(checkOnly: boolean): Promise<void> {
+    this.echo("Checking for updates...");
+
+    const result = await this.updater.checkForUpdate();
+
+    if (result.error) {
+      this.echo(`Error checking for updates: ${result.error}`);
+      return;
+    }
+
+    if (!result.latestVersion) {
+      this.echo("Could not determine latest version");
+      return;
+    }
+
+    if (!result.updateAvailable) {
+      this.echo(`Already up to date (v${result.currentVersion})`);
+      return;
+    }
+
+    this.echo(`Update available: v${result.latestVersion} (current: v${result.currentVersion})`);
+
+    if (checkOnly) {
+      if (result.environment === "git") {
+        this.echo("Run /update to apply (git pull)");
+      } else if (result.environment === "binary") {
+        this.echo("Run /update to apply (download new binary)");
+      } else {
+        this.echo(this.updater.getManualUpdateMessage(result.latestVersion));
+      }
+      return;
+    }
+
+    // Apply the update
+    if (result.environment === "git") {
+      this.echo("Updating via git pull...");
+      const updateResult = await this.updater.updateViaGit();
+      if (updateResult.success) {
+        this.echo(updateResult.message);
+      } else {
+        this.echo(`Update failed: ${updateResult.message}`);
+        this.echo(this.updater.getManualUpdateMessage(result.latestVersion));
+      }
+    } else if (result.environment === "binary") {
+      this.echo("Downloading new binary...");
+      const updateResult = await this.updater.updateViaBinary();
+      if (updateResult.success) {
+        this.echo(updateResult.message);
+      } else {
+        this.echo(`Update failed: ${updateResult.message}`);
+        this.echo(this.updater.getManualUpdateMessage(result.latestVersion));
+      }
+    } else {
+      this.echo(this.updater.getManualUpdateMessage(result.latestVersion));
+    }
   }
 
   private wordWrap(text: string, maxWidth: number): string[] {
