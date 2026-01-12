@@ -14,6 +14,7 @@ export interface AppSettings {
   movementKeys: boolean;
   inputMode: InputMode;
   wordWrap: boolean;
+  commandSeparator: string;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -24,6 +25,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   movementKeys: true,
   inputMode: "select",
   wordWrap: false,
+  commandSeparator: ";;",
 };
 
 const VALID_VALUES: Record<keyof AppSettings, readonly string[]> = {
@@ -34,6 +36,7 @@ const VALID_VALUES: Record<keyof AppSettings, readonly string[]> = {
   movementKeys: ["true", "false"] as const,
   inputMode: ["select", "clear"] as const,
   wordWrap: ["true", "false"] as const,
+  commandSeparator: [] as const, // Empty array = any string value allowed
 };
 
 const DESCRIPTIONS: Record<keyof AppSettings, string> = {
@@ -44,6 +47,7 @@ const DESCRIPTIONS: Record<keyof AppSettings, string> = {
   movementKeys: "Enable Shift+HJKL roguelike movement shortcuts",
   inputMode: "After sending: select (highlight text) or clear (empty input)",
   wordWrap: "Wrap long lines from the MUD to fit terminal width",
+  commandSeparator: "Separator for chaining commands (e.g., 'e;;e;;n'). Use 'none' to disable",
 };
 
 export class SettingsManager {
@@ -83,7 +87,8 @@ export class SettingsManager {
 
   set<K extends keyof AppSettings>(key: K, value: string): boolean {
     const validValues = VALID_VALUES[key];
-    if (!validValues.includes(value)) {
+    // Empty validValues array means any string is allowed
+    if (validValues.length > 0 && !validValues.includes(value)) {
       return false;
     }
     // Convert string to appropriate type
@@ -102,7 +107,9 @@ export class SettingsManager {
   }
 
   getValidValues<K extends keyof AppSettings>(key: K): readonly string[] {
-    return VALID_VALUES[key];
+    const values = VALID_VALUES[key];
+    // Return helpful text for freeform string fields
+    return values.length > 0 ? values : ["(any string)"];
   }
 
   isValidKey(key: string): key is keyof AppSettings {

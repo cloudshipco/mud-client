@@ -1640,8 +1640,27 @@ class MudClient {
     process.stdout.write(CURSOR_TO(termHeight, 1) + CLEAR_LINE + line);
   }
 
-  private handleCommand(cmd: string): void {
+  private handleCommand(cmd: string, isChained = false): void {
     const trimmed = cmd.trim();
+
+    // Handle command chaining (e.g., "e;;e;;n" with separator ";;")
+    const separator = this.settings.get("commandSeparator");
+    if (!isChained && separator && separator !== "none" && trimmed.includes(separator)) {
+      // Add full command to history before splitting
+      this.history.add(trimmed);
+      this.history.reset();
+      // Strip leading separators
+      let input = trimmed;
+      while (input.startsWith(separator)) {
+        input = input.slice(separator.length);
+      }
+      // Split and process each command
+      const commands = input.split(separator).map((c) => c.trim()).filter(Boolean);
+      for (const command of commands) {
+        this.handleCommand(command, true);
+      }
+      return;
+    }
 
     // Allow blank lines to be sent to MUD (but don't add to history)
     if (!trimmed) {
@@ -1651,8 +1670,11 @@ class MudClient {
       return;
     }
 
-    this.history.add(trimmed);
-    this.history.reset();
+    // Only add to history if this is the original command (not a chained subcommand)
+    if (!isChained) {
+      this.history.add(trimmed);
+      this.history.reset();
+    }
 
     // Client commands
     if (trimmed.startsWith("/")) {
