@@ -1931,6 +1931,23 @@ class MudClient {
     // Expand aliases
     const expanded = this.charManager.expandAlias(trimmed);
 
+    // Check for command chaining in expanded result (alias may contain separators)
+    if (!isChained && separator && separator !== "none" && expanded.includes(separator)) {
+      // Strip leading separators
+      let input = expanded;
+      while (input.startsWith(separator)) {
+        input = input.slice(separator.length);
+      }
+      // Split and send each command
+      const commands = input.split(separator).map((c) => c.trim()).filter(Boolean);
+      for (const command of commands) {
+        if (this.connected) {
+          this.client.send(command);
+        }
+      }
+      return;
+    }
+
     // Send to MUD
     if (this.connected) {
       this.client.send(expanded);
