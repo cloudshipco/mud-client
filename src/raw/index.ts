@@ -1644,8 +1644,9 @@ class MudClient {
     const trimmed = cmd.trim();
 
     // Handle command chaining (e.g., "e;;e;;n" with separator ";;")
+    // Don't split client commands (starting with /) - they may contain the separator in arguments
     const separator = this.settings.get("commandSeparator");
-    if (!isChained && separator && separator !== "none" && trimmed.includes(separator)) {
+    if (!isChained && !trimmed.startsWith("/") && separator && separator !== "none" && trimmed.includes(separator)) {
       // Add full command to history before splitting
       this.history.add(trimmed);
       this.history.reset();
