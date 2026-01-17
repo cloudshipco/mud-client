@@ -12,6 +12,7 @@ import { PaneManager } from "../panes/PaneManager";
 import { PaneConfigStore } from "../panes/PaneConfigStore";
 import { MessageClassifier } from "../messages/MessageClassifier";
 import { Updater } from "../update/Updater";
+import { MacroManager } from "../macro/MacroManager";
 
 // ANSI escape codes
 const ESC = "\x1b";
@@ -40,6 +41,7 @@ class MudClient {
   private paneManager: PaneManager;
   private classifier: MessageClassifier;
   private updater: Updater;
+  private macroManager: MacroManager;
 
   // Total height of all enabled panes (0 if none enabled)
   private get totalPaneHeight(): number {
@@ -106,6 +108,7 @@ class MudClient {
     this.paneManager = new PaneManager(this.paneConfig.getPanes());
     this.classifier = new MessageClassifier(this.paneConfig.getClassifiers());
     this.updater = new Updater();
+    this.macroManager = new MacroManager();
 
     this.setupTelnet();
     this.setupInput();
@@ -1169,6 +1172,9 @@ class MudClient {
         if (!prevIsSpace) {
           // Send movement without clearing/affecting the input buffer
           this.echoCommand(movement);
+          if (this.macroManager.isRecording()) {
+            this.macroManager.recordCommand(movement);
+          }
           this.client.send(movement);
           return;
         }
@@ -1677,6 +1683,11 @@ class MudClient {
       this.history.reset();
     }
 
+    // Record command for macro (if recording and not a client command)
+    if (!trimmed.startsWith("/") && this.macroManager.isRecording()) {
+      this.macroManager.recordCommand(trimmed);
+    }
+
     // Client commands
     if (trimmed.startsWith("/")) {
       const parts = trimmed.slice(1).split(/\s+/);
@@ -1738,6 +1749,7 @@ class MudClient {
         this.echo("  /alias <name> <expansion> - Create alias");
         this.echo("  /unalias <name> - Remove alias");
         this.echo("  /aliases - List all aliases");
+        this.echo("  /macro - Record and playback command sequences");
         this.echo("  /config - Show all settings");
         this.echo("  /set <key> <value> - Change a setting");
         this.echo("  /clear - Clear screen");
@@ -1922,6 +1934,76 @@ class MudClient {
       } else if (command === "update") {
         const checkOnly = parts[1] === "check";
         this.handleUpdate(checkOnly);
+      } else if (command === "macro" || command === "macros") {
+        const subcommand = parts[1]?.toLowerCase();
+        const macroName = parts[2];
+
+        if (!subcommand || subcommand === "help") {
+          this.echo("Macro commands:");
+          this.echo("  /macro record <name> - Start recording a macro");
+          this.echo("  /macro pause - Pause recording");
+          this.echo("  /macro finish - Save the macro (aliases: stop, save)");
+          this.echo("  /macro cancel - Discard recording");
+          this.echo("  /macro play <name> - Play a macro (alias: run)");
+          this.echo("  /macro list - List all macros (alias: ls)");
+          this.echo("  /macro delete <name> - Delete a macro (alias: rm)");
+        } else if (subcommand === "record") {
+          if (!macroName) {
+            // If paused, resume recording; otherwise show usage
+            if (this.macroManager.isPaused()) {
+              const result = this.macroManager.resumeRecording();
+              this.echo(result.message);
+            } else {
+              this.echo("Usage: /macro record <name>");
+            }
+          } else {
+            const result = this.macroManager.startRecording(macroName);
+            this.echo(result.message);
+          }
+        } else if (subcommand === "pause") {
+          const result = this.macroManager.pauseRecording();
+          this.echo(result.message);
+        } else if (subcommand === "finish" || subcommand === "stop" || subcommand === "save") {
+          const result = this.macroManager.finishRecording();
+          this.echo(result.message);
+        } else if (subcommand === "cancel") {
+          const result = this.macroManager.cancelRecording();
+          this.echo(result.message);
+        } else if (subcommand === "play" || subcommand === "run") {
+          if (!macroName) {
+            this.echo("Usage: /macro play <name>");
+          } else {
+            const result = this.macroManager.playMacro(macroName);
+            if (!result.success) {
+              this.echo(result.message);
+            } else {
+              this.echo(result.message);
+              for (const cmd of result.commands) {
+                this.handleCommand(cmd, true);
+              }
+            }
+          }
+        } else if (subcommand === "list" || subcommand === "ls") {
+          const macros = this.macroManager.listMacros();
+          if (macros.length === 0) {
+            this.echo("No macros defined.");
+          } else {
+            this.echo("Macros:");
+            for (const macro of macros) {
+              this.echo(`  ${macro.name} (${macro.commands.length} commands)`);
+            }
+          }
+        } else if (subcommand === "delete" || subcommand === "rm") {
+          if (!macroName) {
+            this.echo("Usage: /macro delete <name>");
+          } else {
+            const result = this.macroManager.deleteMacro(macroName);
+            this.echo(result.message);
+          }
+        } else {
+          this.echo(`Unknown macro subcommand: ${subcommand}`);
+          this.echo("Use /macro help for available commands.");
+        }
       } else {
         this.echo(`Unknown command: ${command}`);
       }
@@ -2245,6 +2327,7 @@ class MudClient {
         "/alias",
         "/unalias",
         "/aliases",
+        "/macro",
         "/config",
         "/set",
         "/clear",
