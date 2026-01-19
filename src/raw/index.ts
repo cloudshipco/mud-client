@@ -1058,6 +1058,47 @@ class MudClient {
       return;
     }
 
+    // Alt/Option + letter sequences (e.g., \x1bb for Alt+b, \x1bf for Alt+f)
+    if (key.startsWith("\x1b") && key.length === 2) {
+      const char = key[1];
+
+      // Option+b or Option+Left - move word left
+      if (char === "b") {
+        this.inputSelected = false;
+        if (this.cursorPos > 0) {
+          let pos = this.cursorPos;
+          while (pos > 0 && this.input[pos - 1] === " ") {
+            pos--;
+          }
+          while (pos > 0 && this.input[pos - 1] !== " ") {
+            pos--;
+          }
+          this.cursorPos = pos;
+          this.redrawInput();
+        }
+        return;
+      }
+
+      // Option+f or Option+Right - move word right
+      if (char === "f") {
+        this.inputSelected = false;
+        if (this.cursorPos < this.input.length) {
+          let pos = this.cursorPos;
+          while (pos < this.input.length && this.input[pos] === " ") {
+            pos++;
+          }
+          while (pos < this.input.length && this.input[pos] !== " ") {
+            pos++;
+          }
+          this.cursorPos = pos;
+          this.redrawInput();
+        }
+        return;
+      }
+
+      return;
+    }
+
     // Escape sequences (arrows, etc.)
     if (key.startsWith("\x1b[") || key.startsWith("\x1bO")) {
       const seq = key.slice(2);
@@ -1105,6 +1146,44 @@ class MudClient {
           this.redrawInput();
         } else if (this.cursorPos < this.input.length) {
           this.cursorPos++;
+          this.redrawInput();
+        }
+        return;
+      }
+
+      // Option+Left - move word left
+      if (seq === "1;3D" || seq === "b") {
+        this.inputSelected = false;
+        if (this.cursorPos > 0) {
+          // Skip any spaces immediately before cursor
+          let pos = this.cursorPos;
+          while (pos > 0 && this.input[pos - 1] === " ") {
+            pos--;
+          }
+          // Move to start of word
+          while (pos > 0 && this.input[pos - 1] !== " ") {
+            pos--;
+          }
+          this.cursorPos = pos;
+          this.redrawInput();
+        }
+        return;
+      }
+
+      // Option+Right - move word right
+      if (seq === "1;3C" || seq === "f") {
+        this.inputSelected = false;
+        if (this.cursorPos < this.input.length) {
+          // Skip any spaces immediately after cursor
+          let pos = this.cursorPos;
+          while (pos < this.input.length && this.input[pos] === " ") {
+            pos++;
+          }
+          // Move to end of word
+          while (pos < this.input.length && this.input[pos] !== " ") {
+            pos++;
+          }
+          this.cursorPos = pos;
           this.redrawInput();
         }
         return;
