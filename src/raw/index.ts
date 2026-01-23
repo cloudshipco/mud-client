@@ -1487,6 +1487,23 @@ class MudClient {
       return;
     }
 
+    // 'x' - close/disable the focused pane
+    if (key === "x" || key === "X") {
+      const focusedPaneId = focusablePanes[this.focusedPaneIndex];
+      if (focusedPaneId === "main") {
+        this.echo("Cannot close main output");
+        return;
+      }
+      // Disable the pane and persist the change
+      if (this.paneManager.disablePane(focusedPaneId)) {
+        this.paneConfig.setPaneEnabled(focusedPaneId, false);
+        this.echo(`Pane '${focusedPaneId}' disabled`);
+      }
+      // Exit focus mode since the focused pane is now gone
+      this.exitPaneFocus();
+      return;
+    }
+
     // Ctrl+U - scroll up half page
     if (key === "\x15") {
       this.scrollFocusedPane("up");
@@ -1720,7 +1737,7 @@ class MudClient {
       }
     }
 
-    const line = `\x1b[33m[PANE]\x1b[0m ${focusedPane}${scrollInfo} (Tab, s=solo, Ctrl+U/D=scroll, Esc=exit)`;
+    const line = `\x1b[33m[PANE]\x1b[0m ${focusedPane}${scrollInfo} (Tab, s=solo, x=close, Ctrl+U/D=scroll, Esc=exit)`;
     const termHeight = process.stdout.rows || 24;
     process.stdout.write(CURSOR_TO(termHeight, 1) + CLEAR_LINE + line);
   }
