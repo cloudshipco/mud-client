@@ -1494,6 +1494,8 @@ class MudClient {
         this.echo("Cannot close main output");
         return;
       }
+      // Update saved state so exitPaneFocus won't restore it
+      this.savedPaneStates.set(focusedPaneId, false);
       // Disable the pane and persist the change
       if (this.paneManager.disablePane(focusedPaneId)) {
         this.paneConfig.setPaneEnabled(focusedPaneId, false);
