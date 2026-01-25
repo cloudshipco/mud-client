@@ -11,6 +11,23 @@
     "core:window:default",
     "core:window:allow-close",
     "core:window:allow-set-focus",
-    "store:default"
+    "store:default",
+    "fs:default",
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [{ "path": "$HOME/.config/mud-client/**" }]
+    },
+    {
+      "identifier": "fs:allow-write-text-file",
+      "allow": [{ "path": "$HOME/.config/mud-client/**" }]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [{ "path": "$HOME/.config/mud-client/**" }]
+    },
+    {
+      "identifier": "fs:allow-mkdir",
+      "allow": [{ "path": "$HOME/.config/mud-client/**" }]
+    }
   ]
 }

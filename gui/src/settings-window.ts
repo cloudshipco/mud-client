@@ -12,6 +12,17 @@ import {
   TerminalTheme,
 } from './types/settings';
 import { loadSettings, saveSettings, resetSettings } from './services/settings-store';
+import {
+  AppConfig,
+  DEFAULT_CONFIG,
+  CONFIG_OPTIONS,
+  CONFIG_DESCRIPTIONS,
+  loadConfig,
+  saveConfig,
+  resetConfig,
+} from './services/config-store';
+
+type TabId = 'terminal' | 'config';
 
 const FONT_FAMILIES = [
   { value: '"JetBrains Mono", monospace', label: 'JetBrains Mono' },
@@ -45,10 +56,14 @@ const FONT_WEIGHTS: { value: FontWeight; label: string }[] = [
 
 let currentSettings: TerminalSettings;
 let originalSettings: TerminalSettings;
+let currentConfig: AppConfig;
+let originalConfig: AppConfig;
+let activeTab: TabId = 'terminal';
 
 async function init() {
-  currentSettings = await loadSettings();
+  [currentSettings, currentConfig] = await Promise.all([loadSettings(), loadConfig()]);
   originalSettings = JSON.parse(JSON.stringify(currentSettings));
+  originalConfig = JSON.parse(JSON.stringify(currentConfig));
   render();
 }
 
@@ -58,9 +73,13 @@ function render() {
 
   root.innerHTML = `
     <div class="settings-container">
-      ${buildFontSection()}
-      ${buildCursorSection()}
-      ${buildColorsSection()}
+      <div class="settings-tabs">
+        <button class="settings-tab ${activeTab === 'terminal' ? 'active' : ''}" data-tab="terminal">Terminal</button>
+        <button class="settings-tab ${activeTab === 'config' ? 'active' : ''}" data-tab="config">Config</button>
+      </div>
+      <div class="settings-content">
+        ${activeTab === 'terminal' ? buildTerminalSections() : buildConfigSection()}
+      </div>
       <div class="settings-footer">
         <button class="settings-btn settings-btn-danger" id="reset-btn">Reset to Defaults</button>
         <button class="settings-btn settings-btn-secondary" id="cancel-btn">Cancel</button>
@@ -69,8 +88,125 @@ function render() {
     </div>
   `;
 
+  bindTabs();
   bindInputs();
   bindButtons();
+}
+
+function buildTerminalSections(): string {
+  return `
+    ${buildFontSection()}
+    ${buildCursorSection()}
+    ${buildColorsSection()}
+  `;
+}
+
+function buildConfigSection(): string {
+  const c = currentConfig;
+  return `
+    <div class="settings-section">
+      <h3>Display</h3>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label" for="status-position">Status Position</label>
+          <span class="settings-description">${CONFIG_DESCRIPTIONS.statusPosition}</span>
+        </div>
+        <select class="settings-select" id="status-position" data-config="statusPosition">
+          ${CONFIG_OPTIONS.statusPosition.map(
+            (o) => `<option value="${o.value}" ${c.statusPosition === o.value ? 'selected' : ''}>${o.label}</option>`
+          ).join('')}
+        </select>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label" for="timestamps">Timestamps</label>
+          <span class="settings-description">${CONFIG_DESCRIPTIONS.timestamps}</span>
+        </div>
+        <select class="settings-select" id="timestamps" data-config="timestamps">
+          ${CONFIG_OPTIONS.timestamps.map(
+            (o) => `<option value="${o.value}" ${c.timestamps === o.value ? 'selected' : ''}>${o.label}</option>`
+          ).join('')}
+        </select>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label" for="word-wrap">Word Wrap</label>
+          <span class="settings-description">${CONFIG_DESCRIPTIONS.wordWrap}</span>
+        </div>
+        <input type="checkbox" class="settings-checkbox" id="word-wrap" data-config="wordWrap"
+               ${c.wordWrap ? 'checked' : ''}>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label" for="echo-commands">Echo Commands</label>
+          <span class="settings-description">${CONFIG_DESCRIPTIONS.echoCommands}</span>
+        </div>
+        <input type="checkbox" class="settings-checkbox" id="echo-commands" data-config="echoCommands"
+               ${c.echoCommands ? 'checked' : ''}>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Input</h3>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label" for="input-mode">After Sending</label>
+          <span class="settings-description">${CONFIG_DESCRIPTIONS.inputMode}</span>
+        </div>
+        <select class="settings-select" id="input-mode" data-config="inputMode">
+          ${CONFIG_OPTIONS.inputMode.map(
+            (o) => `<option value="${o.value}" ${c.inputMode === o.value ? 'selected' : ''}>${o.label}</option>`
+          ).join('')}
+        </select>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label" for="command-separator">Command Separator</label>
+          <span class="settings-description">${CONFIG_DESCRIPTIONS.commandSeparator}</span>
+        </div>
+        <input type="text" class="settings-input settings-input-text" id="command-separator" data-config="commandSeparator"
+               value="${escapeHtml(c.commandSeparator)}" placeholder=";;">
+      </div>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label" for="movement-keys">Movement Keys</label>
+          <span class="settings-description">${CONFIG_DESCRIPTIONS.movementKeys}</span>
+        </div>
+        <input type="checkbox" class="settings-checkbox" id="movement-keys" data-config="movementKeys"
+               ${c.movementKeys ? 'checked' : ''}>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Connection</h3>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label" for="auto-reconnect">Auto Reconnect</label>
+          <span class="settings-description">${CONFIG_DESCRIPTIONS.autoReconnect}</span>
+        </div>
+        <input type="checkbox" class="settings-checkbox" id="auto-reconnect" data-config="autoReconnect"
+               ${c.autoReconnect ? 'checked' : ''}>
+      </div>
+    </div>
+
+    <div class="settings-note">
+      Changes require restarting the client to take effect.
+    </div>
+  `;
+}
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function bindTabs() {
+  const tabs = document.querySelectorAll('.settings-tab');
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      activeTab = (tab as HTMLElement).dataset.tab as TabId;
+      render();
+    });
+  });
 }
 
 function buildFontSection(): string {
@@ -209,7 +345,7 @@ function buildColorsSection(): string {
 }
 
 function bindInputs() {
-  // Generic settings inputs
+  // Generic settings inputs (terminal tab)
   const inputs = document.querySelectorAll('[data-setting]');
   inputs.forEach((input) => {
     const el = input as HTMLInputElement | HTMLSelectElement;
@@ -235,6 +371,48 @@ function bindInputs() {
       emitSettingsChange();
     });
   });
+
+  // Config inputs (config tab)
+  const configInputs = document.querySelectorAll('[data-config]');
+  configInputs.forEach((input) => {
+    const el = input as HTMLInputElement | HTMLSelectElement;
+    const configKey = el.dataset.config as keyof AppConfig;
+
+    const handler = () => {
+      updateConfig(configKey, el);
+    };
+
+    el.addEventListener('input', handler);
+    el.addEventListener('change', handler);
+  });
+}
+
+function updateConfig(
+  key: keyof AppConfig,
+  el: HTMLInputElement | HTMLSelectElement
+): void {
+  switch (key) {
+    case 'echoCommands':
+    case 'autoReconnect':
+    case 'movementKeys':
+    case 'wordWrap':
+      if (el instanceof HTMLInputElement) {
+        currentConfig[key] = el.checked;
+      }
+      break;
+    case 'statusPosition':
+      currentConfig.statusPosition = el.value as AppConfig['statusPosition'];
+      break;
+    case 'timestamps':
+      currentConfig.timestamps = el.value as AppConfig['timestamps'];
+      break;
+    case 'inputMode':
+      currentConfig.inputMode = el.value as AppConfig['inputMode'];
+      break;
+    case 'commandSeparator':
+      currentConfig.commandSeparator = el.value;
+      break;
+  }
 }
 
 function updateSetting(
@@ -276,7 +454,7 @@ function updateSetting(
 
 function bindButtons() {
   document.getElementById('apply-btn')?.addEventListener('click', async () => {
-    await saveSettings(currentSettings);
+    await Promise.all([saveSettings(currentSettings), saveConfig(currentConfig)]);
     emitSettingsChange();
     getCurrentWindow().close();
   });
@@ -288,8 +466,12 @@ function bindButtons() {
   });
 
   document.getElementById('reset-btn')?.addEventListener('click', async () => {
-    currentSettings = await resetSettings();
-    emitSettingsChange();
+    if (activeTab === 'terminal') {
+      currentSettings = await resetSettings();
+      emitSettingsChange();
+    } else {
+      currentConfig = await resetConfig();
+    }
     render();
   });
 }

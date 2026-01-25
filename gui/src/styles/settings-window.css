@@ -5,7 +5,47 @@
   flex-direction: column;
   height: 100vh;
   padding: 16px;
+  overflow: hidden;
+}
+
+/* Tabs */
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.settings-tab {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 500;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.settings-tab:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.settings-tab.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* Content area */
+.settings-content {
+  flex: 1;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .settings-container::-webkit-scrollbar {
@@ -56,6 +96,17 @@
   color: rgba(255, 255, 255, 0.85);
 }
 
+.settings-label-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-description {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
 /* Inputs */
 .settings-input,
 .settings-select {
@@ -85,6 +136,11 @@
   width: 80px;
   text-align: right;
   -moz-appearance: textfield;
+}
+
+.settings-input-text {
+  width: 100px;
+  text-align: center;
 }
 
 .settings-select {
@@ -178,6 +234,18 @@
   width: 32px;
   height: 24px;
   border-radius: 4px;
+}
+
+/* Note */
+.settings-note {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  font-style: italic;
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 /* Footer */

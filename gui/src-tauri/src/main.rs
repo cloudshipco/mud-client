@@ -145,6 +145,7 @@ fn spawn_pty(
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(PtyWriter(Arc::new(Mutex::new(None))))
         .manage(PtyMaster(Arc::new(Mutex::new(None))))
