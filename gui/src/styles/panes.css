@@ -127,6 +127,7 @@
 .main-line {
   white-space: pre-wrap;
   word-wrap: break-word;
+  min-height: 1em; /* Preserve empty lines */
 }
 
 .main-line-client {

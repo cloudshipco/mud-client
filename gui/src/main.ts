@@ -373,9 +373,12 @@ async function main() {
     }
   });
 
-  // Focus input on click
+  // Focus input on click (but not if selecting text)
   document.addEventListener("click", () => {
-    inputLine.focus();
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      inputLine.focus();
+    }
   });
 
   // Initial focus
