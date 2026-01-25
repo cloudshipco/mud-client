@@ -1,0 +1,147 @@
+// Prevents additional console window on Windows in release
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::io::{Read, Write};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use tauri::{AppHandle, Emitter, Manager};
+
+struct PtyWriter(Arc<Mutex<Option<Box<dyn Write + Send>>>>);
+struct PtyMaster(Arc<Mutex<Option<Box<dyn portable_pty::MasterPty + Send>>>>);
+
+#[tauri::command]
+fn write_to_pty(writer: tauri::State<PtyWriter>, data: String) {
+    if let Ok(mut guard) = writer.0.lock() {
+        if let Some(ref mut w) = *guard {
+            let _ = w.write_all(data.as_bytes());
+            let _ = w.flush();
+        }
+    }
+}
+
+#[tauri::command]
+fn resize_pty(master: tauri::State<PtyMaster>, cols: u16, rows: u16) {
+    if let Ok(guard) = master.0.lock() {
+        if let Some(ref m) = *guard {
+            let _ = m.resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            });
+        }
+    }
+}
+
+#[tauri::command]
+fn set_window_title(app: AppHandle, title: String) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title(&title);
+    }
+}
+
+fn get_sidecar_path() -> Option<std::path::PathBuf> {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            #[cfg(target_os = "windows")]
+            let sidecar_name = "mud-client.exe";
+            #[cfg(not(target_os = "windows"))]
+            let sidecar_name = "mud-client";
+
+            let path = exe_dir.join(sidecar_name);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn spawn_pty(
+    app: AppHandle,
+    writer_state: tauri::State<PtyWriter>,
+    master_state: tauri::State<PtyMaster>,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let sidecar_path = get_sidecar_path().ok_or("Failed to find sidecar binary")?;
+
+    // Create PTY with the correct initial size
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("Failed to open PTY: {}", e))?;
+
+    // Build command for the sidecar
+    let mut cmd = CommandBuilder::new(&sidecar_path);
+    cmd.env("TERM", "xterm-256color");
+
+    // Spawn the child process
+    let mut child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("Failed to spawn command: {}", e))?;
+
+    // Drop slave after spawning
+    drop(pair.slave);
+
+    // Get reader and writer from master
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("Failed to get reader: {}", e))?;
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|e| format!("Failed to get writer: {}", e))?;
+
+    // Store state
+    {
+        let mut w = writer_state.0.lock().unwrap();
+        *w = Some(writer);
+    }
+    {
+        let mut m = master_state.0.lock().unwrap();
+        *m = Some(pair.master);
+    }
+
+    // Read from PTY and emit to frontend
+    let app_handle = app.clone();
+    thread::spawn(move || {
+        let mut reader = reader;
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let _ = app_handle.emit("pty-output", data);
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    // Monitor child process
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
+
+    Ok(())
+}
+
+fn main() {
+    tauri::Builder::default()
+        .manage(PtyWriter(Arc::new(Mutex::new(None))))
+        .manage(PtyMaster(Arc::new(Mutex::new(None))))
+        .invoke_handler(tauri::generate_handler![write_to_pty, resize_pty, spawn_pty, set_window_title])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

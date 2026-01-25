@@ -1,0 +1,89 @@
+name: Build GUI Release
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  build-gui:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            bun_target: bun-darwin-arm64
+            sidecar_suffix: aarch64-apple-darwin
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            bun_target: bun-darwin-x64
+            sidecar_suffix: x86_64-apple-darwin
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            bun_target: bun-windows-x64
+            sidecar_suffix: x86_64-pc-windows-msvc.exe
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install dependencies (root)
+        run: bun install
+
+      - name: Install dependencies (gui)
+        working-directory: gui
+        run: npm install
+
+      - name: Build mud-client sidecar
+        run: |
+          bun build --compile --target=${{ matrix.bun_target }} --outfile=gui/src-tauri/binaries/mud-client-${{ matrix.sidecar_suffix }} src/raw/index.ts
+
+      - name: Build Tauri app (macOS)
+        if: matrix.platform == 'macos-latest'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: gui
+          args: --target ${{ matrix.target }}
+          tagName: ${{ github.event.release.tag_name }}
+          releaseName: "MUD Client v__VERSION__"
+          releaseBody: "See the release notes for details."
+          releaseDraft: false
+          prerelease: false
+
+      - name: Build Tauri app (Windows - unsigned)
+        if: matrix.platform == 'windows-latest'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: gui
+          args: --target ${{ matrix.target }}
+          tagName: ${{ github.event.release.tag_name }}
+          releaseName: "MUD Client v__VERSION__"
+          releaseBody: "See the release notes for details."
+          releaseDraft: false
+          prerelease: false
