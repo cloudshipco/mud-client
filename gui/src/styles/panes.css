@@ -194,15 +194,16 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 2px 8px;
-  background: #007acc;
-  color: white;
+  padding: 4px 8px;
+  background: #2d2d2d;
+  color: #888;
   font-size: 11px;
-  line-height: 1;
+  line-height: 1.2;
 }
 
 .status-bar.disconnected {
-  background: #cc3300;
+  background: #2d2d2d;
+  color: #cc6666;
 }
 
 .status-left {
