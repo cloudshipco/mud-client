@@ -28,6 +28,7 @@ export interface GuiInputEvent {
   prompt: string;
   text: string;
   cursor: number;
+  passthrough?: boolean;  // When true, frontend should send all keys directly to PTY
 }
 
 export interface GuiStatusEvent {

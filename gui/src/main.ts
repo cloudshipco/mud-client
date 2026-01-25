@@ -157,6 +157,11 @@ async function main() {
         break;
       }
       case "input": {
+        // Handle passthrough mode first (e.g., for reverse search)
+        // Must be before setText since setPassthroughMode(true) clears the input
+        if (event.passthrough !== undefined) {
+          inputLine.setPassthroughMode(event.passthrough);
+        }
         inputLine.setPrompt(event.prompt);
         // Sync input text and cursor from backend (for history navigation, etc.)
         inputLine.setText(event.text);

@@ -41,6 +41,7 @@ export interface GuiInputEvent {
   prompt: string;
   text: string;
   cursor: number;
+  passthrough?: boolean;  // When true, frontend should send all keys directly to PTY
 }
 
 export interface GuiStatusEvent {
@@ -199,14 +200,18 @@ class MudClient {
   }
 
   // Emit current input state for GUI
-  private emitInputState(): void {
+  private emitInputState(options?: { passthrough?: boolean; prompt?: string; text?: string; cursor?: number }): void {
     if (!this.guiMode) return;
-    this.emitGuiEvent({
+    const event: GuiInputEvent = {
       event: "input",
-      prompt: this.promptText,
-      text: this.input,
-      cursor: this.cursorPos,
-    });
+      prompt: options?.prompt ?? this.promptText,
+      text: options?.text ?? this.input,
+      cursor: options?.cursor ?? this.cursorPos,
+    };
+    if (options?.passthrough !== undefined) {
+      event.passthrough = options.passthrough;
+    }
+    this.emitGuiEvent(event);
   }
 
   // Emit connection status for GUI
@@ -1551,6 +1556,13 @@ class MudClient {
       this.input = this.savedInput;
       this.cursorPos = this.input.length;
     }
+
+    // In GUI mode, explicitly disable passthrough mode
+    if (this.guiMode) {
+      this.emitInputState({ passthrough: false });
+      return;
+    }
+
     this.redrawInput();
   }
 
@@ -1617,6 +1629,19 @@ class MudClient {
 
   private redrawSearch(): void {
     const match = this.searchQuery ? (this.searchResults[this.searchIndex] || "") : "";
+
+    // In GUI mode, emit an input event with passthrough enabled
+    if (this.guiMode) {
+      const prompt = `(reverse-i-search)\`${this.searchQuery}': `;
+      this.emitInputState({
+        prompt,
+        text: match,
+        cursor: match.length,
+        passthrough: true,
+      });
+      return;
+    }
+
     const line = `\x1b[36m(reverse-i-search)\x1b[0m\`${this.searchQuery}': ${match}`;
     process.stdout.write(CLEAR_LINE + "\r" + line);
   }
