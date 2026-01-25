@@ -148,6 +148,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_window_state::Builder::new().build())
         .manage(PtyWriter(Arc::new(Mutex::new(None))))
         .manage(PtyMaster(Arc::new(Mutex::new(None))))
         .setup(|app| {

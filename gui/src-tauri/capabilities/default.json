@@ -14,6 +14,7 @@
     "store:default",
     "fs:default",
     "fs:allow-config-read-recursive",
-    "fs:allow-config-write-recursive"
+    "fs:allow-config-write-recursive",
+    "window-state:default"
   ]
 }
