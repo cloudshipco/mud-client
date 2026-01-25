@@ -251,6 +251,43 @@ export class Pane {
     this.render();
   }
 
+  getMessages(): PaneMessage[] {
+    return this.messages;
+  }
+
+  /**
+   * Convert pane state to JSON-serializable object for GUI mode
+   */
+  toJSON(): {
+    id: string;
+    enabled: boolean;
+    height: number;
+    passthrough: boolean;
+    messages: Array<{
+      text: string;
+      ansi: string;
+      type: string;
+      sender?: string;
+      channel?: string;
+      timestamp: number;
+    }>;
+  } {
+    return {
+      id: this.id,
+      enabled: this._enabled,
+      height: this.height,
+      passthrough: this.passthrough,
+      messages: this.messages.map((msg) => ({
+        text: msg.classified.raw,
+        ansi: msg.text,
+        type: msg.classified.type,
+        sender: msg.classified.sender,
+        channel: msg.classified.channel,
+        timestamp: msg.timestamp.getTime(),
+      })),
+    };
+  }
+
   private stripPositioning(text: string): string {
     return text.replace(/\x1b\[[0-9;]*[HABCDGJKsur]/g, "");
   }

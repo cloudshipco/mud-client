@@ -16,6 +16,15 @@ export type PromptResult =
   | { action: "submit"; value: string }
   | { action: "cancel" };
 
+// GUI mode prompt event
+interface GuiPromptEvent {
+  event: "prompt";
+  title: string;
+  label: string;
+  value: string;
+  isPassword: boolean;
+}
+
 export class TextPrompt {
   private title = "";
   private label = "";
@@ -23,6 +32,11 @@ export class TextPrompt {
   private defaultValue = "";
   private isPassword = false;
   private resolve: ((result: PromptResult) => void) | null = null;
+  private guiMode = false;
+
+  setGuiMode(enabled: boolean): void {
+    this.guiMode = enabled;
+  }
 
   show(
     title: string,
@@ -85,6 +99,11 @@ export class TextPrompt {
   }
 
   private render(): void {
+    if (this.guiMode) {
+      this.renderGui();
+      return;
+    }
+
     const termWidth = process.stdout.columns || 80;
     const termHeight = process.stdout.rows || 24;
 
@@ -141,10 +160,24 @@ export class TextPrompt {
     process.stdout.write(output);
   }
 
+  private renderGui(): void {
+    // Emit JSON event for GUI to render
+    const event: GuiPromptEvent = {
+      event: "prompt",
+      title: this.title,
+      label: this.label,
+      value: this.isPassword ? "*".repeat(this.value.length) : this.value,
+      isPassword: this.isPassword,
+    };
+    process.stdout.write(JSON.stringify(event) + "\n");
+  }
+
   private finish(result: PromptResult): void {
     const resolve = this.resolve;
     this.resolve = null;
-    process.stdout.write(CLEAR_SCREEN + CURSOR_HOME);
+    if (!this.guiMode) {
+      process.stdout.write(CLEAR_SCREEN + CURSOR_HOME);
+    }
     resolve?.(result);
   }
 

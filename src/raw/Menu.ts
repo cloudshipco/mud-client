@@ -27,6 +27,16 @@ export type MenuResult =
   | { action: "quit" }
   | { action: "delete"; value: string };
 
+// GUI mode menu event
+interface GuiMenuEvent {
+  event: "menu";
+  title: string;
+  items: Array<{ label: string; value: string; isNew?: boolean }>;
+  selectedIndex: number;
+  showBack: boolean;
+  allowDelete: boolean;
+}
+
 export class Menu {
   private items: MenuItem[] = [];
   private selectedIndex = 0;
@@ -34,6 +44,11 @@ export class Menu {
   private showBack = false;
   private allowDelete = false;
   private resolve: ((result: MenuResult) => void) | null = null;
+  private guiMode = false;
+
+  setGuiMode(enabled: boolean): void {
+    this.guiMode = enabled;
+  }
 
   show(
     title: string,
@@ -132,6 +147,13 @@ export class Menu {
   }
 
   private render(): void {
+    // Debug: log which mode we're rendering in
+    process.stderr.write(`[Menu] render() guiMode=${this.guiMode}\n`);
+    if (this.guiMode) {
+      this.renderGui();
+      return;
+    }
+
     const termWidth = process.stdout.columns || 80;
     const termHeight = process.stdout.rows || 24;
 
@@ -197,10 +219,29 @@ export class Menu {
     process.stdout.write(output);
   }
 
+  private renderGui(): void {
+    // Emit JSON event for GUI to render
+    const event: GuiMenuEvent = {
+      event: "menu",
+      title: this.title,
+      items: this.items.map((item) => ({
+        label: item.label,
+        value: item.value,
+        isNew: item.isNew,
+      })),
+      selectedIndex: this.selectedIndex,
+      showBack: this.showBack,
+      allowDelete: this.allowDelete,
+    };
+    process.stdout.write(JSON.stringify(event) + "\n");
+  }
+
   private finish(result: MenuResult): void {
     const resolve = this.resolve;
     this.resolve = null;
-    process.stdout.write(SHOW_CURSOR + CLEAR_SCREEN + CURSOR_HOME);
+    if (!this.guiMode) {
+      process.stdout.write(SHOW_CURSOR + CLEAR_SCREEN + CURSOR_HOME);
+    }
     resolve?.(result);
   }
 

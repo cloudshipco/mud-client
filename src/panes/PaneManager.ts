@@ -100,4 +100,11 @@ export class PaneManager {
   getPane(id: string): Pane | undefined {
     return this.panes.find((p) => p.id === id);
   }
+
+  /**
+   * Convert all panes to JSON-serializable format for GUI mode
+   */
+  toJSON(): Array<ReturnType<Pane["toJSON"]>> {
+    return this.panes.map((p) => p.toJSON());
+  }
 }

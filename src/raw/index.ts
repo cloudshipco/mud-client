@@ -14,6 +14,74 @@ import { MessageClassifier } from "../messages/MessageClassifier";
 import { Updater } from "../update/Updater";
 import { MacroManager } from "../macro/MacroManager";
 
+// GUI mode JSON event types
+export interface GuiPaneMessage {
+  text: string;           // Plain text (ANSI stripped)
+  ansi: string;           // With ANSI codes
+  type: string;           // tell, channel, say, other
+  sender?: string;
+  channel?: string;
+  timestamp: number;
+}
+
+export interface GuiPaneEvent {
+  event: "pane";
+  id: string;
+  messages: GuiPaneMessage[];
+}
+
+export interface GuiMainEvent {
+  event: "main";
+  lines: string[];        // Plain text lines
+  ansi: string[];         // Lines with ANSI codes
+}
+
+export interface GuiInputEvent {
+  event: "input";
+  prompt: string;
+  text: string;
+  cursor: number;
+}
+
+export interface GuiStatusEvent {
+  event: "status";
+  connected: boolean;
+  character?: string;
+  host?: string;
+}
+
+export interface GuiClearEvent {
+  event: "clear";
+  target: "main" | "pane" | "all";
+  id?: string;
+}
+
+export interface GuiClientMessageEvent {
+  event: "client";
+  message: string;
+}
+
+export interface GuiPaneConfig {
+  id: string;
+  title: string;
+  height: number;
+  enabled: boolean;
+}
+
+export interface GuiPanesConfigEvent {
+  event: "panes-config";
+  panes: GuiPaneConfig[];
+}
+
+export type GuiEvent =
+  | GuiPaneEvent
+  | GuiMainEvent
+  | GuiInputEvent
+  | GuiStatusEvent
+  | GuiClearEvent
+  | GuiClientMessageEvent
+  | GuiPanesConfigEvent;
+
 // ANSI escape codes
 const ESC = "\x1b";
 const CSI = `${ESC}[`;
@@ -96,7 +164,11 @@ class MudClient {
   private mainHasNewContent = false; // New content arrived while main is scrolled
   private isSolo = false; // Track if currently in solo mode
 
-  constructor() {
+  // GUI mode - emit JSON events instead of ANSI escape sequences
+  private guiMode: boolean;
+
+  constructor(guiMode: boolean = false) {
+    this.guiMode = guiMode;
     this.client = new TelnetClient();
     this.history = new CommandHistory();
     this.tabCompletion = new TabCompletion();
@@ -110,9 +182,63 @@ class MudClient {
     this.updater = new Updater();
     this.macroManager = new MacroManager();
 
+    // Set GUI mode on components that need it
+    this.menu.setGuiMode(guiMode);
+    this.prompt.setGuiMode(guiMode);
+
     this.setupTelnet();
     this.setupInput();
-    this.setupResizeHandler();
+    if (!this.guiMode) {
+      this.setupResizeHandler();
+    }
+  }
+
+  // Emit a JSON event to stdout for GUI mode
+  private emitGuiEvent(event: GuiEvent): void {
+    process.stdout.write(JSON.stringify(event) + "\n");
+  }
+
+  // Emit current input state for GUI
+  private emitInputState(): void {
+    if (!this.guiMode) return;
+    this.emitGuiEvent({
+      event: "input",
+      prompt: this.promptText,
+      text: this.input,
+      cursor: this.cursorPos,
+    });
+  }
+
+  // Emit connection status for GUI
+  private emitStatusEvent(): void {
+    if (!this.guiMode) return;
+    this.emitGuiEvent({
+      event: "status",
+      connected: this.connected,
+      character: this.currentCharacter?.name,
+      host: this.currentConnection?.host,
+    });
+  }
+
+  // Emit pane configuration for GUI
+  private emitPanesConfig(): void {
+    if (!this.guiMode) return;
+    const panes: GuiPaneConfig[] = [];
+    for (const paneId of this.paneManager.getPaneIds()) {
+      const pane = this.paneManager.getPane(paneId);
+      if (pane) {
+        panes.push({
+          id: paneId,
+          title: pane.title,
+          height: pane.height,
+          enabled: pane.enabled,
+        });
+      }
+    }
+    this.emitGuiEvent({
+      event: "panes-config",
+      panes,
+    });
   }
 
   private setupResizeHandler(): void {
@@ -159,6 +285,7 @@ class MudClient {
       // Auto-connect mode: skip menu
       this.appState = "client";
       this.setupScrollRegion();
+      this.emitPanesConfig(); // Inform GUI about pane configuration
       this.echo(`Connecting to ${autoHost}:${autoPort || 23}...`);
       this.client.connect(autoHost, autoPort || 23);
       this.redrawInput();
@@ -408,6 +535,9 @@ class MudClient {
     // Set up scroll region: all but the last line
     this.setupScrollRegion();
 
+    // Inform GUI about pane configuration
+    this.emitPanesConfig();
+
     // Clear screen and show connection info
     process.stdout.write(CLEAR_SCREEN + CURSOR_HOME);
     this.echo(`Character: ${this.currentCharacter.name}`);
@@ -514,7 +644,22 @@ class MudClient {
       this.debugLogStream.write(`[FLUSH TXT] ${readable}\n`);
     }
 
-    // Add timestamps if enabled
+    // Strip bare CR characters
+    toFlush = toFlush.replace(/\r/g, "");
+
+    // Strip ANSI cursor positioning sequences (keep SGR color codes)
+    toFlush = toFlush.replace(/\x1b\[[0-9;]*[HABCDGJKsur]/g, "");
+
+    // Strip trailing newlines
+    toFlush = toFlush.replace(/\n+$/, "");
+
+    // GUI mode: emit JSON events instead of terminal output
+    if (this.guiMode) {
+      this.flushOutputGui(toFlush);
+      return;
+    }
+
+    // TUI mode: add timestamps if enabled
     const timestampMode = this.settings.get("timestamps");
     if (timestampMode !== "hidden") {
       toFlush = this.addTimestamps(toFlush, timestampMode);
@@ -537,23 +682,6 @@ class MudClient {
 
     // Save cursor position for later restoration
     process.stdout.write(SAVE_CURSOR);
-
-    // Strip trailing newlines since we handle scrolling ourselves
-    toFlush = toFlush.replace(/\n+$/, "");
-
-    // Strip bare CR characters - they cause display corruption with scroll regions
-    // (CRLF has already been normalized to LF by TelnetClient)
-    toFlush = toFlush.replace(/\r/g, "");
-
-    // Strip ANSI cursor positioning sequences that would break scroll region layout
-    // Keep SGR (color/style) sequences ending in 'm', strip positioning ones:
-    // - ESC[H, ESC[;H, ESC[row;colH - cursor position
-    // - ESC[nA/B/C/D - cursor up/down/forward/back
-    // - ESC[nG - cursor to column
-    // - ESC[s/u - save/restore cursor (conflicts with our own)
-    // - ESC[nJ/K - erase display/line
-    // - ESC[r, ESC[n;mr - scroll region (would corrupt our layout)
-    toFlush = toFlush.replace(/\x1b\[[0-9;]*[HABCDGJKsur]/g, "");
 
     // Debug: log after stripping
     if (this.debugMode && this.debugLogStream) {
@@ -634,6 +762,67 @@ class MudClient {
       this.redrawPaneFocus();
     } else {
       this.redrawInput();
+    }
+  }
+
+  // GUI mode output: emit JSON events for panes and main content
+  private flushOutputGui(toFlush: string): void {
+    const lines = toFlush.split("\n");
+    const mainLines: { text: string; ansi: string }[] = [];
+    const paneUpdates: Map<string, GuiPaneMessage[]> = new Map();
+
+    for (const line of lines) {
+      // Strip ANSI codes for classification
+      const stripped = line.replace(/\x1b\[[0-9;]*m/g, "");
+      const classified = this.classifier.classify(stripped);
+
+      // Check if any pane accepts this message
+      let routedToPane = false;
+      for (const paneId of this.paneManager.getPaneIds()) {
+        const pane = this.paneManager.getPane(paneId);
+        if (pane && pane.enabled && pane.accepts(classified)) {
+          // Add to pane updates
+          if (!paneUpdates.has(paneId)) {
+            paneUpdates.set(paneId, []);
+          }
+          paneUpdates.get(paneId)!.push({
+            text: stripped,
+            ansi: line,
+            type: classified.type,
+            sender: classified.sender,
+            channel: classified.channel,
+            timestamp: Date.now(),
+          });
+
+          // If pane doesn't have passthrough, don't add to main
+          if (!pane.getPassthrough()) {
+            routedToPane = true;
+          }
+        }
+      }
+
+      // Add to main lines if not consumed by a pane
+      if (!routedToPane) {
+        mainLines.push({ text: stripped, ansi: line });
+      }
+    }
+
+    // Emit pane update events
+    for (const [paneId, messages] of paneUpdates) {
+      this.emitGuiEvent({
+        event: "pane",
+        id: paneId,
+        messages,
+      });
+    }
+
+    // Emit main output event
+    if (mainLines.length > 0) {
+      this.emitGuiEvent({
+        event: "main",
+        lines: mainLines.map((l) => l.text),
+        ansi: mainLines.map((l) => l.ansi),
+      });
     }
   }
 
@@ -771,9 +960,10 @@ class MudClient {
     this.client.on("connect", () => {
       this.connected = true;
       this.updatePrompt();
+      this.emitStatusEvent();
       if (this.appState === "client") {
         this.echo("Connected!");
-        this.redrawInput();
+        if (!this.guiMode) this.redrawInput();
 
         // Auto-login: send character name and password
         if (this.currentCharacter) {
@@ -797,6 +987,7 @@ class MudClient {
     this.client.on("close", () => {
       this.connected = false;
       this.updatePrompt();
+      this.emitStatusEvent();
       if (this.appState === "client") {
         // Save last session for reconnect
         if (this.currentConnection && this.currentCharacter) {
@@ -814,7 +1005,7 @@ class MudClient {
               this.client.connect(this.currentConnection.host, this.currentConnection.port);
             }
           }, 3000);
-        } else {
+        } else if (!this.guiMode) {
           this.showDisconnectPrompt();
         }
       }
@@ -829,7 +1020,8 @@ class MudClient {
     this.client.on("stateChange", (state) => {
       this.connected = state === "connected";
       this.updatePrompt();
-      if (this.appState === "client") {
+      this.emitStatusEvent();
+      if (this.appState === "client" && !this.guiMode) {
         this.redrawInput();
       }
     });
@@ -842,14 +1034,66 @@ class MudClient {
     process.stdin.resume();
     process.stdin.setEncoding("utf8");
 
-    process.stdin.on("data", (key: string) => {
-      this.handleKey(key);
+    process.stdin.on("data", (data: string) => {
+      // Parse input into tokens: escape sequences stay together, other chars are individual
+      const tokens = this.tokenizeInput(data);
+      for (const token of tokens) {
+        this.handleKey(token);
+      }
     });
 
     process.on("SIGINT", () => {
       this.cleanup();
       process.exit(0);
     });
+  }
+
+  /**
+   * Tokenize input data into individual keys/sequences.
+   * Escape sequences (like \x1b[A for arrow keys) are kept together.
+   * Regular and control characters are split individually.
+   * This handles the case where the GUI sends "hello\r" as one chunk.
+   */
+  private tokenizeInput(data: string): string[] {
+    const tokens: string[] = [];
+    let i = 0;
+
+    while (i < data.length) {
+      // Check for escape sequence
+      if (data[i] === "\x1b") {
+        // Possible escape sequence
+        if (i + 1 < data.length) {
+          const next = data[i + 1];
+          if (next === "[" || next === "O") {
+            // CSI or SS3 sequence - read until we hit a letter
+            let j = i + 2;
+            while (j < data.length && !/[A-Za-z~]/.test(data[j])) {
+              j++;
+            }
+            if (j < data.length) {
+              j++; // Include the terminating character
+            }
+            tokens.push(data.slice(i, j));
+            i = j;
+            continue;
+          } else if (next >= "a" && next <= "z") {
+            // Alt+letter sequence (e.g., \x1bb for Alt+b)
+            tokens.push(data.slice(i, i + 2));
+            i += 2;
+            continue;
+          }
+        }
+        // Standalone escape
+        tokens.push("\x1b");
+        i++;
+      } else {
+        // Regular character or control character
+        tokens.push(data[i]);
+        i++;
+      }
+    }
+
+    return tokens;
   }
 
   private handleKey(key: string): void {
@@ -981,6 +1225,12 @@ class MudClient {
 
     // Enter
     if (key === "\r" || key === "\n") {
+      // In GUI mode, if disconnected and input is empty, show connection menu
+      if (this.guiMode && !this.connected && !this.input.trim()) {
+        this.showConnectionMenu();
+        return;
+      }
+
       if (this.input.trim()) {
         this.echoCommand(this.input);
       }
@@ -2139,6 +2389,17 @@ class MudClient {
   // Helper: echo command to scroll region with > prefix
   private echoCommand(cmd: string): void {
     if (!this.settings.get("echoCommands")) return;
+
+    if (this.guiMode) {
+      // In GUI mode, emit as a main output line with grey color
+      this.emitGuiEvent({
+        event: "main",
+        lines: [`> ${cmd}`],
+        ansi: [`\x1b[90m> ${cmd}\x1b[0m`],
+      });
+      return;
+    }
+
     const termHeight = process.stdout.rows || 24;
     const panelHeight = this.totalPaneHeight;
     const mainScrollTop = panelHeight > 0 ? panelHeight + 2 : 1;
@@ -2176,6 +2437,12 @@ class MudClient {
 
   private redrawInput(): void {
     if (this.appState !== "client") return;
+
+    // GUI mode: emit input state event
+    if (this.guiMode) {
+      this.emitInputState();
+      return;
+    }
 
     const termWidth = process.stdout.columns || 80;
     const termHeight = process.stdout.rows || 24;
@@ -2273,6 +2540,15 @@ class MudClient {
 
   private echo(message: string): void {
     if (this.appState !== "client") return;
+
+    // GUI mode: emit client message event
+    if (this.guiMode) {
+      this.emitGuiEvent({
+        event: "client",
+        message,
+      });
+      return;
+    }
 
     const termWidth = process.stdout.columns || 80;
     const termHeight = process.stdout.rows || 24;
@@ -2505,16 +2781,25 @@ class MudClient {
 const args = process.argv.slice(2);
 let host: string | undefined;
 let port: number | undefined;
+let guiMode = false;
+
+// Debug: print all arguments
+process.stderr.write(`[DEBUG] argv: ${JSON.stringify(process.argv)}\n`);
+process.stderr.write(`[DEBUG] args: ${JSON.stringify(args)}\n`);
 
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
-  if (!arg.startsWith("-") && !host) {
+  if (arg === "--gui") {
+    guiMode = true;
+  } else if (!arg.startsWith("-") && !host) {
     const parts = arg.split(":");
     host = parts[0];
     port = parts[1] ? parseInt(parts[1], 10) : undefined;
   }
 }
 
+process.stderr.write(`[DEBUG] guiMode: ${guiMode}\n`);
+
 // Start
-const client = new MudClient();
+const client = new MudClient(guiMode);
 client.start(host, port);
