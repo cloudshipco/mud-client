@@ -203,7 +203,7 @@ function stateToStyle(state: AnsiState): string {
     styles.push(`background-color:${state.bg}`);
   }
   if (state.bold) {
-    styles.push("font-weight:bold");
+    styles.push("font-weight:var(--font-weight-bold, bold)");
   }
   if (state.dim) {
     styles.push("opacity:0.5");

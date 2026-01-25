@@ -298,3 +298,87 @@
 .settings-btn-danger:hover {
   color: #ff6b6b;
 }
+
+/* Panes section */
+.settings-panes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-pane-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.settings-pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.settings-pane-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-pane-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.settings-pane-filter {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.settings-pane-options {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.settings-pane-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-pane-option .settings-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.settings-pane-option .settings-input {
+  width: 70px;
+}
+
+/* Empty state */
+.settings-empty {
+  padding: 24px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.settings-empty p {
+  margin: 0 0 8px;
+}
+
+.settings-empty code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.settings-note code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}

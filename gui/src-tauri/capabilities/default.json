@@ -15,6 +15,18 @@
     "fs:default",
     "fs:allow-config-read-recursive",
     "fs:allow-config-write-recursive",
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [{ "path": "$HOME/.config/mud-client/**" }]
+    },
+    {
+      "identifier": "fs:allow-write-text-file",
+      "allow": [{ "path": "$HOME/.config/mud-client/**" }]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [{ "path": "$HOME/.config/mud-client/**" }]
+    },
     "window-state:default"
   ]
 }

@@ -21,8 +21,15 @@ import {
   saveConfig,
   resetConfig,
 } from './services/config-store';
+import {
+  PanesConfig,
+  PaneConfig,
+  loadPanesConfig,
+  savePanesConfig,
+  updatePane,
+} from './services/panes-config-store';
 
-type TabId = 'terminal' | 'config';
+type TabId = 'terminal' | 'config' | 'panes';
 
 const FONT_FAMILIES = [
   { value: '"JetBrains Mono", monospace', label: 'JetBrains Mono' },
@@ -58,12 +65,19 @@ let currentSettings: TerminalSettings;
 let originalSettings: TerminalSettings;
 let currentConfig: AppConfig;
 let originalConfig: AppConfig;
+let currentPanesConfig: PanesConfig | null = null;
+let originalPanesConfig: PanesConfig | null = null;
 let activeTab: TabId = 'terminal';
 
 async function init() {
-  [currentSettings, currentConfig] = await Promise.all([loadSettings(), loadConfig()]);
+  [currentSettings, currentConfig, currentPanesConfig] = await Promise.all([
+    loadSettings(),
+    loadConfig(),
+    loadPanesConfig(),
+  ]);
   originalSettings = JSON.parse(JSON.stringify(currentSettings));
   originalConfig = JSON.parse(JSON.stringify(currentConfig));
+  originalPanesConfig = currentPanesConfig ? JSON.parse(JSON.stringify(currentPanesConfig)) : null;
   render();
 }
 
@@ -76,9 +90,10 @@ function render() {
       <div class="settings-tabs">
         <button class="settings-tab ${activeTab === 'terminal' ? 'active' : ''}" data-tab="terminal">Terminal</button>
         <button class="settings-tab ${activeTab === 'config' ? 'active' : ''}" data-tab="config">Config</button>
+        <button class="settings-tab ${activeTab === 'panes' ? 'active' : ''}" data-tab="panes">Panes</button>
       </div>
       <div class="settings-content">
-        ${activeTab === 'terminal' ? buildTerminalSections() : buildConfigSection()}
+        ${activeTab === 'terminal' ? buildTerminalSections() : activeTab === 'config' ? buildConfigSection() : buildPanesSection()}
       </div>
       <div class="settings-footer">
         <button class="settings-btn settings-btn-danger" id="reset-btn">Reset to Defaults</button>
@@ -197,6 +212,83 @@ function buildConfigSection(): string {
 
 function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function buildPanesSection(): string {
+  if (!currentPanesConfig || currentPanesConfig.panes.length === 0) {
+    return `
+      <div class="settings-section">
+        <h3>Panes</h3>
+        <div class="settings-empty">
+          <p>No panes configured.</p>
+          <p class="settings-description">
+            Create <code>~/.config/mud-client/panes.yaml</code> to define panes
+            for capturing tells, channels, and other message types.
+          </p>
+        </div>
+      </div>
+    `;
+  }
+
+  const paneRows = currentPanesConfig.panes.map((pane) => {
+    const filterDesc = formatPaneFilter(pane);
+    return `
+      <div class="settings-pane-card" data-pane-id="${pane.id}">
+        <div class="settings-pane-header">
+          <div class="settings-pane-title">
+            <input type="checkbox" class="settings-checkbox" data-pane-enabled="${pane.id}"
+                   ${pane.enabled !== false ? 'checked' : ''}>
+            <span class="settings-pane-name">${escapeHtml(pane.id)}</span>
+          </div>
+          <span class="settings-pane-filter">${filterDesc}</span>
+        </div>
+        <div class="settings-pane-options">
+          <div class="settings-pane-option">
+            <label class="settings-label">Height (lines)</label>
+            <input type="number" class="settings-input" data-pane-height="${pane.id}"
+                   value="${pane.height}" min="1" max="20" step="1">
+          </div>
+          <div class="settings-pane-option">
+            <label class="settings-label">Passthrough</label>
+            <input type="checkbox" class="settings-checkbox" data-pane-passthrough="${pane.id}"
+                   ${pane.passthrough ? 'checked' : ''}>
+          </div>
+          <div class="settings-pane-option">
+            <label class="settings-label">Max Messages</label>
+            <input type="number" class="settings-input" data-pane-max="${pane.id}"
+                   value="${pane.maxMessages || 500}" min="50" max="2000" step="50">
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="settings-section">
+      <h3>Panes</h3>
+      <div class="settings-panes-list">
+        ${paneRows}
+      </div>
+    </div>
+    <div class="settings-note">
+      Changes require restarting the client to take effect.
+      Edit <code>~/.config/mud-client/panes.yaml</code> for advanced configuration.
+    </div>
+  `;
+}
+
+function formatPaneFilter(pane: PaneConfig): string {
+  const parts: string[] = [];
+  if (pane.filter.types && pane.filter.types.length > 0) {
+    parts.push(pane.filter.types.join(', '));
+  }
+  if (pane.filter.channels && pane.filter.channels.length > 0) {
+    parts.push(`channels: ${pane.filter.channels.join(', ')}`);
+  }
+  if (pane.filter.pattern) {
+    parts.push(`pattern`);
+  }
+  return parts.length > 0 ? parts.join(' | ') : 'all messages';
 }
 
 function bindTabs() {
@@ -385,6 +477,55 @@ function bindInputs() {
     el.addEventListener('input', handler);
     el.addEventListener('change', handler);
   });
+
+  // Pane inputs (panes tab)
+  bindPaneInputs();
+}
+
+function bindPaneInputs() {
+  if (!currentPanesConfig) return;
+
+  // Enabled checkboxes
+  document.querySelectorAll('[data-pane-enabled]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const paneId = el.dataset.paneEnabled!;
+    el.addEventListener('change', () => {
+      currentPanesConfig = updatePane(currentPanesConfig!, paneId, { enabled: el.checked });
+    });
+  });
+
+  // Height inputs
+  document.querySelectorAll('[data-pane-height]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const paneId = el.dataset.paneHeight!;
+    el.addEventListener('change', () => {
+      const height = parseInt(el.value, 10);
+      if (!isNaN(height) && height >= 1) {
+        currentPanesConfig = updatePane(currentPanesConfig!, paneId, { height });
+      }
+    });
+  });
+
+  // Passthrough checkboxes
+  document.querySelectorAll('[data-pane-passthrough]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const paneId = el.dataset.panePassthrough!;
+    el.addEventListener('change', () => {
+      currentPanesConfig = updatePane(currentPanesConfig!, paneId, { passthrough: el.checked });
+    });
+  });
+
+  // Max messages inputs
+  document.querySelectorAll('[data-pane-max]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const paneId = el.dataset.paneMax!;
+    el.addEventListener('change', () => {
+      const maxMessages = parseInt(el.value, 10);
+      if (!isNaN(maxMessages) && maxMessages >= 50) {
+        currentPanesConfig = updatePane(currentPanesConfig!, paneId, { maxMessages });
+      }
+    });
+  });
 }
 
 function updateConfig(
@@ -454,7 +595,11 @@ function updateSetting(
 
 function bindButtons() {
   document.getElementById('apply-btn')?.addEventListener('click', async () => {
-    await Promise.all([saveSettings(currentSettings), saveConfig(currentConfig)]);
+    const saves: Promise<void>[] = [saveSettings(currentSettings), saveConfig(currentConfig)];
+    if (currentPanesConfig) {
+      saves.push(savePanesConfig(currentPanesConfig));
+    }
+    await Promise.all(saves);
     emitSettingsChange();
     getCurrentWindow().close();
   });
@@ -469,9 +614,10 @@ function bindButtons() {
     if (activeTab === 'terminal') {
       currentSettings = await resetSettings();
       emitSettingsChange();
-    } else {
+    } else if (activeTab === 'config') {
       currentConfig = await resetConfig();
     }
+    // Note: No reset for panes - they need the YAML file
     render();
   });
 }

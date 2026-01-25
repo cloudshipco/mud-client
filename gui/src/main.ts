@@ -51,6 +51,8 @@ async function main() {
   const root = document.documentElement;
   root.style.setProperty("--font-family", settings.fontFamily);
   root.style.setProperty("--font-size", `${settings.fontSize}px`);
+  root.style.setProperty("--font-weight", String(settings.fontWeight));
+  root.style.setProperty("--font-weight-bold", String(settings.fontWeightBold));
   root.style.setProperty("--line-height", `${settings.lineHeight}`);
   root.style.setProperty("--letter-spacing", `${settings.letterSpacing}px`);
 
@@ -314,6 +316,8 @@ async function main() {
     const root = document.documentElement;
     root.style.setProperty("--font-family", newSettings.fontFamily);
     root.style.setProperty("--font-size", `${newSettings.fontSize}px`);
+    root.style.setProperty("--font-weight", String(newSettings.fontWeight));
+    root.style.setProperty("--font-weight-bold", String(newSettings.fontWeightBold));
     root.style.setProperty("--line-height", `${newSettings.lineHeight}`);
     root.style.setProperty("--letter-spacing", `${newSettings.letterSpacing}px`);
     // Update ANSI color palette (also sets --theme-bg)
