@@ -11,6 +11,7 @@
     "core:window:default",
     "core:window:allow-close",
     "core:window:allow-set-focus",
+    "core:window:allow-start-dragging",
     "store:default",
     "fs:default",
     "fs:allow-config-read-recursive",

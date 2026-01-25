@@ -67,6 +67,7 @@ async function main() {
   // Create status bar (at very top)
   const statusBar = document.createElement("div");
   statusBar.className = "status-bar";
+  statusBar.setAttribute("data-tauri-drag-region", "");
   statusBar.innerHTML = `
     <div class="status-left">
       <span class="status-connection">Disconnected</span>
