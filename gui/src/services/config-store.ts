@@ -4,7 +4,8 @@
  */
 
 import { readTextFile, writeTextFile, exists, mkdir } from '@tauri-apps/plugin-fs';
-import { homeDir, join } from '@tauri-apps/api/path';
+import { join } from '@tauri-apps/api/path';
+import { configDir } from '@tauri-apps/api/path';
 
 export type StatusPosition = 'prompt' | 'right' | 'hidden';
 export type TimestampMode = 'hidden' | 'time' | 'datetime';
@@ -61,13 +62,13 @@ export const CONFIG_DESCRIPTIONS: Record<keyof AppConfig, string> = {
 };
 
 async function getConfigPath(): Promise<string> {
-  const home = await homeDir();
-  return await join(home, '.config', 'mud-client', 'settings.json');
+  const config = await configDir();
+  return await join(config, 'mud-client', 'settings.json');
 }
 
 async function getConfigDir(): Promise<string> {
-  const home = await homeDir();
-  return await join(home, '.config', 'mud-client');
+  const config = await configDir();
+  return await join(config, 'mud-client');
 }
 
 function mergeConfig(defaults: AppConfig, saved: Partial<AppConfig>): AppConfig {

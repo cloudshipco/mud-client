@@ -13,21 +13,7 @@
     "core:window:allow-set-focus",
     "store:default",
     "fs:default",
-    {
-      "identifier": "fs:allow-read-text-file",
-      "allow": [{ "path": "$HOME/.config/mud-client/**" }]
-    },
-    {
-      "identifier": "fs:allow-write-text-file",
-      "allow": [{ "path": "$HOME/.config/mud-client/**" }]
-    },
-    {
-      "identifier": "fs:allow-exists",
-      "allow": [{ "path": "$HOME/.config/mud-client/**" }]
-    },
-    {
-      "identifier": "fs:allow-mkdir",
-      "allow": [{ "path": "$HOME/.config/mud-client/**" }]
-    }
+    "fs:allow-config-read-recursive",
+    "fs:allow-config-write-recursive"
   ]
 }

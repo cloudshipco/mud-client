@@ -6,6 +6,7 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri::menu::{Menu, Submenu, PredefinedMenuItem};
 
 struct PtyWriter(Arc<Mutex<Option<Box<dyn Write + Send>>>>);
 struct PtyMaster(Arc<Mutex<Option<Box<dyn portable_pty::MasterPty + Send>>>>);
@@ -149,6 +150,57 @@ fn main() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(PtyWriter(Arc::new(Mutex::new(None))))
         .manage(PtyMaster(Arc::new(Mutex::new(None))))
+        .setup(|app| {
+            // Create app menu with standard macOS items
+            let app_submenu = Submenu::with_items(
+                app,
+                "Twilite",
+                true,
+                &[
+                    &PredefinedMenuItem::about(app, Some("About Twilite"), None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::services(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::hide(app, None)?,
+                    &PredefinedMenuItem::hide_others(app, None)?,
+                    &PredefinedMenuItem::show_all(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::quit(app, None)?,
+                ],
+            )?;
+
+            let edit_submenu = Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(app, None)?,
+                    &PredefinedMenuItem::redo(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, None)?,
+                    &PredefinedMenuItem::copy(app, None)?,
+                    &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::select_all(app, None)?,
+                ],
+            )?;
+
+            let window_submenu = Submenu::with_items(
+                app,
+                "Window",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(app, None)?,
+                    &PredefinedMenuItem::maximize(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::close_window(app, None)?,
+                ],
+            )?;
+
+            let menu = Menu::with_items(app, &[&app_submenu, &edit_submenu, &window_submenu])?;
+            app.set_menu(menu)?;
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![write_to_pty, resize_pty, spawn_pty, set_window_title])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
