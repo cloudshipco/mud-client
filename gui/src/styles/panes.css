@@ -1,0 +1,323 @@
+/**
+ * Styles for scrollable panes GUI mode
+ */
+
+/* App layout */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  font-family: var(--font-family, "Menlo", "Monaco", "Consolas", monospace);
+  font-size: var(--font-size, 14px);
+  line-height: var(--line-height, 1.4);
+  letter-spacing: var(--letter-spacing, 0px);
+  background: var(--theme-bg, #1e1e1e);
+  color: var(--theme-fg, #d4d4d4);
+}
+
+/* Panes container at top */
+.panes-container {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid #3a3a3a;
+  background: transparent;
+}
+
+/* Individual pane */
+.pane {
+  position: relative;
+  flex-shrink: 0;
+  border-bottom: 1px solid #3a3a3a;
+  overflow: hidden;
+  background: transparent;
+}
+
+.pane:last-child {
+  border-bottom: none;
+}
+
+.pane-content {
+  height: calc(100% - 4px); /* Leave room for resize handle */
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 8px;
+  background: transparent;
+}
+
+/* Inline title in top right */
+.pane-inline-title {
+  position: absolute;
+  top: 2px;
+  right: 12px;
+  color: #555;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+  z-index: 1;
+  background: var(--theme-bg, #1e1e1e);
+  padding: 0 4px;
+}
+
+/* Resize handle at bottom of pane */
+.pane-resize-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  cursor: ns-resize;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.pane-resize-handle:hover {
+  background: #007acc;
+}
+
+.pane-line {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.pane-line-tell {
+  /* Subtle highlight for tells - disabled for now */
+}
+
+.pane-line-channel {
+  /* Subtle highlight for channels - disabled for now */
+}
+
+.pane-new-indicator {
+  position: absolute;
+  bottom: 4px;
+  right: 8px;
+  padding: 2px 8px;
+  background: #2a2a2a;
+  color: #888;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.9;
+}
+
+.pane-new-indicator:hover {
+  background: #333;
+  color: #ccc;
+}
+
+/* Main output area (fills remaining space) */
+.main-output {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-height: 100px;
+}
+
+.main-content {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+}
+
+.main-line {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.main-line-client {
+  color: #56b6c2;
+}
+
+.client-prefix {
+  color: #56b6c2;
+  font-weight: bold;
+}
+
+.new-indicator {
+  position: absolute;
+  bottom: 8px;
+  right: 16px;
+  padding: 4px 12px;
+  background: #333;
+  color: #888;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.95;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.new-indicator:hover {
+  background: #444;
+  color: #ccc;
+}
+
+/* Input line (fixed at bottom) */
+.input-line {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  background: #252526;
+  border-top: 1px solid #3a3a3a;
+}
+
+.input-prompt {
+  color: #888;
+  margin-right: 4px;
+  white-space: pre;
+}
+
+.input-field {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #d4d4d4;
+  font-family: inherit;
+  font-size: inherit;
+  caret-color: #d4d4d4;
+}
+
+.input-field::selection {
+  background: #264f78;
+}
+
+/* Status bar (at top) */
+.status-bar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 8px;
+  background: #007acc;
+  color: white;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.status-bar.disconnected {
+  background: #cc3300;
+}
+
+.status-left {
+  display: flex;
+  gap: 16px;
+}
+
+.status-right {
+  display: flex;
+  gap: 16px;
+}
+
+/* Scrollbar styling */
+.pane-content::-webkit-scrollbar,
+.main-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.pane-content::-webkit-scrollbar-track,
+.main-content::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.pane-content::-webkit-scrollbar-thumb,
+.main-content::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 4px;
+}
+
+.pane-content::-webkit-scrollbar-thumb:hover,
+.main-content::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Divider between sections */
+.divider {
+  height: 1px;
+  background: #333;
+  flex-shrink: 0;
+}
+
+/* Menu overlay */
+.menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.menu-box {
+  background: #252526;
+  border: 1px solid #00cdcd;
+  border-radius: 4px;
+  min-width: 300px;
+  max-width: 80%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.menu-title {
+  padding: 12px 16px;
+  font-weight: bold;
+  color: #cdcd00;
+  border-bottom: 1px solid #00cdcd;
+}
+
+.menu-items {
+  padding: 8px 0;
+}
+
+.menu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: #333;
+}
+
+.menu-item.selected {
+  background: #264f78;
+  color: #fff;
+}
+
+.menu-item.new-item {
+  color: #00cd00;
+}
+
+.menu-help {
+  padding: 8px 16px;
+  border-top: 1px solid #333;
+  color: #888;
+  font-size: 12px;
+}
+
+/* Prompt specific */
+.prompt-box {
+  min-width: 350px;
+}
+
+.prompt-label {
+  padding: 12px 16px 4px;
+  color: #d4d4d4;
+}
+
+.prompt-value {
+  padding: 8px 16px;
+  font-family: inherit;
+  background: #1e1e1e;
+  margin: 8px 16px;
+  border-radius: 2px;
+  min-height: 24px;
+}
