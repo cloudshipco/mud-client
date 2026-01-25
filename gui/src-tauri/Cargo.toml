@@ -1,5 +1,5 @@
 [package]
-name = "mud-client-gui"
+name = "twilite"
 version = "0.1.0"
 edition = "2021"
 

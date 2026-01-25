@@ -68,6 +68,9 @@ fn spawn_pty(
 ) -> Result<(), String> {
     let sidecar_path = get_sidecar_path().ok_or("Failed to find sidecar binary")?;
 
+    // Debug: print sidecar path
+    eprintln!("[Tauri] Sidecar path: {:?}", sidecar_path);
+
     // Create PTY with the correct initial size
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -79,9 +82,12 @@ fn spawn_pty(
         })
         .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-    // Build command for the sidecar
+    // Build command for the sidecar with --gui flag for JSON output mode
     let mut cmd = CommandBuilder::new(&sidecar_path);
+    cmd.arg("--gui");
     cmd.env("TERM", "xterm-256color");
+
+    eprintln!("[Tauri] Spawning with --gui flag");
 
     // Spawn the child process
     let mut child = pair

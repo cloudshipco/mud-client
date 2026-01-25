@@ -25,3 +25,4 @@ mud-client-*
 
 # User data (created at runtime)
 # ~/.config/mud-client/ is used instead
+docs/tmp/

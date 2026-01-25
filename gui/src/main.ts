@@ -1,12 +1,18 @@
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import "@xterm/xterm/css/xterm.css";
 
 import { loadSettings } from "./services/settings-store";
 import { TerminalSettings } from "./types/settings";
+import { parseGuiEvent, GuiEvent } from "./types/gui-events";
+import { PaneRenderer } from "./components/pane-renderer";
+import { MainOutput } from "./components/main-output";
+import { InputLine } from "./components/input-line";
+import { MenuRenderer } from "./components/menu-renderer";
+import { PromptRenderer } from "./components/prompt-renderer";
+import { applyThemeColors } from "./utils/ansi-parser";
+
+import "./styles/panes.css";
 
 let settingsWindow: WebviewWindow | null = null;
 
@@ -22,9 +28,9 @@ async function openSettings() {
     }
   }
 
-  settingsWindow = new WebviewWindow('settings', {
-    url: 'settings.html',
-    title: 'Settings',
+  settingsWindow = new WebviewWindow("settings", {
+    url: "settings.html",
+    title: "Settings",
     width: 480,
     height: 580,
     resizable: true,
@@ -32,53 +38,87 @@ async function openSettings() {
     center: true,
   });
 
-  settingsWindow.once('tauri://destroyed', () => {
+  settingsWindow.once("tauri://destroyed", () => {
     settingsWindow = null;
   });
 }
 
 async function main() {
-  // Load saved settings before creating terminal
+  // Load saved settings
   const settings = await loadSettings();
 
-  const term = new Terminal({
-    fontFamily: settings.fontFamily,
-    fontSize: settings.fontSize,
-    fontWeight: settings.fontWeight,
-    fontWeightBold: settings.fontWeightBold,
-    lineHeight: settings.lineHeight,
-    letterSpacing: settings.letterSpacing,
-    cursorStyle: settings.cursorStyle,
-    cursorBlink: settings.cursorBlink,
-    theme: settings.theme,
-    allowProposedApi: true,
+  // Apply settings via CSS custom properties
+  const root = document.documentElement;
+  root.style.setProperty("--font-family", settings.fontFamily);
+  root.style.setProperty("--font-size", `${settings.fontSize}px`);
+  root.style.setProperty("--line-height", `${settings.lineHeight}`);
+  root.style.setProperty("--letter-spacing", `${settings.letterSpacing}px`);
+
+  // Set ANSI color palette from theme (also sets --theme-bg, --theme-fg)
+  applyThemeColors(settings.theme);
+
+  // Create app container
+  const appContainer = document.createElement("div");
+  appContainer.className = "app-container";
+  document.body.appendChild(appContainer);
+
+  // Create status bar (at very top)
+  const statusBar = document.createElement("div");
+  statusBar.className = "status-bar";
+  statusBar.innerHTML = `
+    <div class="status-left">
+      <span class="status-connection">Disconnected</span>
+    </div>
+    <div class="status-right">
+      <span class="status-character"></span>
+    </div>
+  `;
+  appContainer.appendChild(statusBar);
+
+  // Create panes container (below status bar)
+  const panesContainer = document.createElement("div");
+  panesContainer.className = "panes-container";
+  appContainer.appendChild(panesContainer);
+
+  // Create pane renderers - we'll create them dynamically as events arrive
+  const panes: Map<string, PaneRenderer> = new Map();
+
+  // Create main output area
+  const mainOutput = new MainOutput(appContainer);
+
+  // Track connection state for reconnect handling
+  let isConnected = false;
+
+  // Create input line
+  const inputLine = new InputLine(appContainer, {
+    onInput: (data: string) => {
+      // If disconnected and user presses Enter with empty input, show menu
+      if (!isConnected && data === "\r") {
+        invoke("write_to_pty", { data: "\r" }); // Trigger menu via backend
+        return;
+      }
+      invoke("write_to_pty", { data });
+    },
   });
 
-  const fitAddon = new FitAddon();
-  term.loadAddon(fitAddon);
+  // Create menu and prompt renderers (overlays)
+  const menuRenderer = new MenuRenderer(document.body);
+  const promptRenderer = new PromptRenderer(document.body);
 
-  const container = document.getElementById("terminal");
-  if (!container) throw new Error("Terminal container not found");
-
-  // Apply background color from settings
-  document.body.style.background = settings.theme.background;
-
-  term.open(container);
-  fitAddon.fit();
-
-  // Listen for settings changes from the settings window
-  listen<TerminalSettings>('settings-changed', (event) => {
-    const newSettings = event.payload;
-    applySettings(term, fitAddon, newSettings);
-  });
-
-  // Keyboard shortcut: Cmd/Ctrl + , to open settings
-  window.addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-      e.preventDefault();
-      openSettings();
+  // Get or create pane renderer
+  function getOrCreatePane(id: string): PaneRenderer {
+    let pane = panes.get(id);
+    if (!pane) {
+      // Create new pane with default height
+      pane = new PaneRenderer(panesContainer, {
+        id,
+        title: id.charAt(0).toUpperCase() + id.slice(1),
+        height: 5,
+      });
+      panes.set(id, pane);
     }
-  });
+    return pane;
+  }
 
   // Track connection info for window title
   let currentCharacter: string | null = null;
@@ -90,63 +130,246 @@ async function main() {
     }
   }
 
-  // Set up event listener FIRST, before spawning the PTY
+  function updateStatusBar(connected: boolean, character?: string, host?: string) {
+    const connectionEl = statusBar.querySelector(".status-connection");
+    const characterEl = statusBar.querySelector(".status-character");
+
+    if (connectionEl) {
+      connectionEl.textContent = connected ? "Connected" : "Disconnected";
+    }
+    if (characterEl && character && host) {
+      characterEl.textContent = `${character}@${host}`;
+    }
+
+    statusBar.className = connected ? "status-bar" : "status-bar disconnected";
+  }
+
+  // Handle GUI events from PTY
+  function handleGuiEvent(event: GuiEvent) {
+    switch (event.event) {
+      case "pane": {
+        const pane = getOrCreatePane(event.id);
+        pane.addMessages(event.messages);
+        break;
+      }
+      case "main": {
+        mainOutput.addLines(event.lines, event.ansi);
+        break;
+      }
+      case "input": {
+        inputLine.setPrompt(event.prompt);
+        // Sync input text and cursor from backend (for history navigation, etc.)
+        inputLine.setText(event.text);
+        inputLine.setCursor(event.cursor);
+        break;
+      }
+      case "status": {
+        currentCharacter = event.character || null;
+        currentHost = event.host || null;
+        isConnected = event.connected;
+        updateWindowTitle();
+        updateStatusBar(event.connected, event.character, event.host);
+        // Hide dialogs and exit passthrough mode when we enter client mode
+        menuRenderer.hide();
+        promptRenderer.hide();
+        inputLine.setPassthroughMode(false);
+        break;
+      }
+      case "clear": {
+        if (event.target === "main") {
+          mainOutput.clear();
+        } else if (event.target === "pane" && event.id) {
+          const pane = panes.get(event.id);
+          if (pane) pane.clear();
+        } else if (event.target === "all") {
+          mainOutput.clear();
+          panes.forEach((pane) => pane.clear());
+        }
+        break;
+      }
+      case "client": {
+        mainOutput.addClientMessage(event.message);
+        break;
+      }
+      case "menu": {
+        // Hide prompt if showing
+        promptRenderer.hide();
+        // Show menu and enable passthrough mode for keyboard
+        menuRenderer.show({
+          title: event.title,
+          items: event.items,
+          selectedIndex: event.selectedIndex,
+          showBack: event.showBack,
+          allowDelete: event.allowDelete,
+        });
+        inputLine.setPassthroughMode(true);
+        break;
+      }
+      case "prompt": {
+        // Hide menu if showing
+        menuRenderer.hide();
+        // Show prompt and enable passthrough mode for keyboard
+        promptRenderer.show({
+          title: event.title,
+          label: event.label,
+          value: event.value,
+          isPassword: event.isPassword,
+        });
+        inputLine.setPassthroughMode(true);
+        break;
+      }
+      case "panes-config": {
+        // Create pane containers for all enabled panes
+        for (const paneConfig of event.panes) {
+          if (paneConfig.enabled && !panes.has(paneConfig.id)) {
+            const pane = new PaneRenderer(panesContainer, {
+              id: paneConfig.id,
+              title: paneConfig.title,
+              height: paneConfig.height,
+            });
+            panes.set(paneConfig.id, pane);
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  // Hide menus/prompts when we get certain events that indicate we've moved on
+  function hideDialogs() {
+    menuRenderer.hide();
+    promptRenderer.hide();
+  }
+
+  // Buffer for accumulating partial JSON lines
+  let lineBuffer = "";
+
+  // Set up PTY output listener
   listen<string>("pty-output", (event) => {
     const data = event.payload;
-    term.write(data);
 
-    // Parse for character name: "Character: James"
-    const charMatch = data.match(/Character:\s+(\S+)/);
-    if (charMatch) {
-      currentCharacter = charMatch[1];
-      updateWindowTitle();
-    }
+    // Accumulate data and process complete lines
+    lineBuffer += data;
+    const lines = lineBuffer.split("\n");
 
-    // Parse for host: "Connecting to dhmud.org:23..."
-    const hostMatch = data.match(/Connecting to\s+([^:\s]+)/);
-    if (hostMatch) {
-      currentHost = hostMatch[1];
-      updateWindowTitle();
+    // Keep the last incomplete line in the buffer
+    lineBuffer = lines.pop() || "";
+
+    // Process complete lines
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      // Debug: log all lines received
+      console.log("[PTY] Line:", trimmed.substring(0, 100));
+
+      // Try to parse as JSON first (all GUI events start with {)
+      if (trimmed.startsWith("{")) {
+        const guiEvent = parseGuiEvent(trimmed);
+        if (guiEvent) {
+          console.log("[PTY] Parsed event:", guiEvent.event);
+          handleGuiEvent(guiEvent);
+          continue;
+        }
+      }
+
+      // Not a JSON event - filter out TUI garbage
+      // Skip lines that contain ANSI escape codes or TUI artifacts
+      const hasAnsiEscape = line.includes("\x1b");
+      const hasBoxChars = /[┌┐└┘├┤─│]/.test(line);
+      // Only check for stripped ANSI if line is short and looks like control sequence
+      const looksLikeControl = line.length < 20 && /^\s*\[[\d;?]*[A-Za-z]/.test(line);
+
+      if (hasAnsiEscape || hasBoxChars || looksLikeControl) {
+        // Skip TUI garbage output
+        continue;
+      }
+
+      // Only show in main output if we're in client mode (not during menus)
+      if (!menuRenderer.isVisible() && !promptRenderer.isVisible()) {
+        mainOutput.addLines([line], [line]);
+      }
     }
   }).then(() => {
-    // Now spawn the PTY with correct initial size
-    invoke("spawn_pty", { cols: term.cols, rows: term.rows })
-      .catch((error) => {
-        term.write(`\r\n\x1b[31mError: ${error}\x1b[0m\r\n`);
-      });
+    // Spawn PTY after listener is set up
+    // Use a fixed size since we're not using xterm anymore
+    invoke("spawn_pty", { cols: 120, rows: 40 }).catch((error) => {
+      mainOutput.addClientMessage(`Error: ${error}`);
+    });
   });
 
-  // Send input to PTY
-  term.onData((data: string) => {
-    invoke("write_to_pty", { data });
+  // Listen for settings changes
+  listen<TerminalSettings>("settings-changed", (event) => {
+    const newSettings = event.payload;
+    applySettings(newSettings);
   });
 
-  // Handle resize
-  const handleResize = () => {
-    fitAddon.fit();
-    invoke("resize_pty", { cols: term.cols, rows: term.rows });
-  };
+  // Apply settings to the app using CSS custom properties
+  function applySettings(newSettings: TerminalSettings) {
+    const root = document.documentElement;
+    root.style.setProperty("--font-family", newSettings.fontFamily);
+    root.style.setProperty("--font-size", `${newSettings.fontSize}px`);
+    root.style.setProperty("--line-height", `${newSettings.lineHeight}`);
+    root.style.setProperty("--letter-spacing", `${newSettings.letterSpacing}px`);
+    // Update ANSI color palette (also sets --theme-bg)
+    applyThemeColors(newSettings.theme);
+  }
 
-  window.addEventListener("resize", handleResize);
+  // Keyboard shortcuts and global key handling
+  window.addEventListener("keydown", (e) => {
+    // Cmd/Ctrl + , to open settings
+    if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+      e.preventDefault();
+      openSettings();
+      return;
+    }
+
+    // When menu or prompt is showing, capture navigation keys globally
+    // This ensures arrow keys work even if input doesn't have focus
+    if (menuRenderer.isVisible() || promptRenderer.isVisible()) {
+      const keyMap: Record<string, string> = {
+        ArrowUp: "\x1b[A",
+        ArrowDown: "\x1b[B",
+        ArrowLeft: "\x1b[D",
+        ArrowRight: "\x1b[C",
+        Enter: "\r",
+        Escape: "\x1b",
+        Backspace: "\x7f",
+        Tab: "\t",
+      };
+
+      if (keyMap[e.key]) {
+        e.preventDefault();
+        invoke("write_to_pty", { data: keyMap[e.key] });
+        return;
+      }
+
+      // Single character keys (for typing in prompts, vim-style j/k navigation)
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        invoke("write_to_pty", { data: e.key });
+        return;
+      }
+    }
+
+    // Page Up/Down for scrolling main output (only when not in menu/prompt)
+    if (e.key === "PageUp") {
+      e.preventDefault();
+      mainOutput.pageUp();
+    }
+    if (e.key === "PageDown") {
+      e.preventDefault();
+      mainOutput.pageDown();
+    }
+  });
+
+  // Focus input on click
+  document.addEventListener("click", () => {
+    inputLine.focus();
+  });
 
   // Initial focus
-  term.focus();
-}
-
-function applySettings(term: Terminal, fitAddon: FitAddon, settings: TerminalSettings) {
-  term.options.fontFamily = settings.fontFamily;
-  term.options.fontSize = settings.fontSize;
-  term.options.fontWeight = settings.fontWeight;
-  term.options.fontWeightBold = settings.fontWeightBold;
-  term.options.lineHeight = settings.lineHeight;
-  term.options.letterSpacing = settings.letterSpacing;
-  term.options.cursorStyle = settings.cursorStyle;
-  term.options.cursorBlink = settings.cursorBlink;
-  term.options.theme = { ...settings.theme };
-
-  document.body.style.background = settings.theme.background;
-
-  fitAddon.fit();
+  inputLine.focus();
 }
 
 main().catch(console.error);

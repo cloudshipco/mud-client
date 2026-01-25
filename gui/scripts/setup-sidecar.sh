@@ -29,4 +29,9 @@ fi
 echo "Building mud-client for $TARGET..."
 bun build --compile --outfile="gui/src-tauri/binaries/mud-client-$TARGET" src/raw/index.ts
 
+# Also copy to target/debug for development mode
+mkdir -p "gui/src-tauri/target/debug"
+cp "gui/src-tauri/binaries/mud-client-$TARGET" "gui/src-tauri/target/debug/mud-client"
+
 echo "Sidecar ready at: gui/src-tauri/binaries/mud-client-$TARGET"
+echo "Dev sidecar ready at: gui/src-tauri/target/debug/mud-client"
