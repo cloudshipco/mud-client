@@ -139,6 +139,7 @@ fn spawn_pty(
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_store::Builder::default().build())
         .manage(PtyWriter(Arc::new(Mutex::new(None))))
         .manage(PtyMaster(Arc::new(Mutex::new(None))))
         .invoke_handler(tauri::generate_handler![write_to_pty, resize_pty, spawn_pty, set_window_title])
