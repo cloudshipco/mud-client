@@ -2828,10 +2828,6 @@ let host: string | undefined;
 let port: number | undefined;
 let guiMode = false;
 
-// Debug: print all arguments
-process.stderr.write(`[DEBUG] argv: ${JSON.stringify(process.argv)}\n`);
-process.stderr.write(`[DEBUG] args: ${JSON.stringify(args)}\n`);
-
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (arg === "--gui") {
@@ -2842,8 +2838,6 @@ for (let i = 0; i < args.length; i++) {
     port = parts[1] ? parseInt(parts[1], 10) : undefined;
   }
 }
-
-process.stderr.write(`[DEBUG] guiMode: ${guiMode}\n`);
 
 // Start
 const client = new MudClient(guiMode);
