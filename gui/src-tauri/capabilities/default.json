@@ -26,7 +26,17 @@
     },
     {
       "identifier": "fs:allow-exists",
-      "allow": [{ "path": "$HOME/.config/mud-client/**" }]
+      "allow": [
+        { "path": "$HOME/.config/mud-client" },
+        { "path": "$HOME/.config/mud-client/**" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-mkdir",
+      "allow": [
+        { "path": "$HOME/.config/mud-client" },
+        { "path": "$HOME/.config/mud-client/**" }
+      ]
     },
     "window-state:default"
   ]

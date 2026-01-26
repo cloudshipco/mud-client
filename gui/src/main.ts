@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 import { loadSettings } from "./services/settings-store";
+import { loadConfig } from "./services/config-store";
 import { TerminalSettings } from "./types/settings";
 import { parseGuiEvent, GuiEvent } from "./types/gui-events";
 import { PaneRenderer } from "./components/pane-renderer";
@@ -44,8 +45,8 @@ async function openSettings() {
 }
 
 async function main() {
-  // Load saved settings
-  const settings = await loadSettings();
+  // Load saved settings and config
+  const [settings, config] = await Promise.all([loadSettings(), loadConfig()]);
 
   // Apply settings via CSS custom properties
   const root = document.documentElement;
@@ -94,6 +95,7 @@ async function main() {
 
   // Create input line
   const inputLine = new InputLine(appContainer, {
+    inputMode: config.inputMode,
     onInput: (data: string) => {
       // If disconnected and user presses Enter with empty input, show menu
       if (!isConnected && data === "\r") {

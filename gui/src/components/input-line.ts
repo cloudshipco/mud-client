@@ -2,8 +2,11 @@
  * InputLine - Fixed input area at the bottom
  */
 
+export type InputMode = 'select' | 'clear';
+
 export interface InputLineOptions {
   onInput: (data: string) => void;
+  inputMode?: InputMode;
 }
 
 export class InputLine {
@@ -14,9 +17,12 @@ export class InputLine {
   private passthroughMode = false; // When true, send all keys directly to PTY
   private awaitingCompletion = false; // True after sending tab, waiting for completion response
   private backendHasText = false; // True when backend's buffer matches our input (after tab completion)
+  private inputMode: InputMode = 'select';
+  private preserveSelection = false; // When true, ignore backend's empty setText (for select mode)
 
   constructor(parent: HTMLElement, options: InputLineOptions) {
     this.onInput = options.onInput;
+    this.inputMode = options.inputMode ?? 'select';
 
     // Create input container
     this.container = document.createElement("div");
@@ -40,13 +46,15 @@ export class InputLine {
     // Handle key events
     this.inputEl.addEventListener("keydown", (e) => this.handleKeyDown(e));
 
-    // When user types after tab completion, clear backend's buffer
+    // When user types, clear flags for special modes
     this.inputEl.addEventListener("input", () => {
       if (this.backendHasText) {
         // Clear backend's line since user is editing
         this.onInput("\x15");
         this.backendHasText = false;
       }
+      // User is typing, allow backend updates again
+      this.preserveSelection = false;
     });
 
     parent.appendChild(this.container);
@@ -102,7 +110,16 @@ export class InputLine {
       } else {
         this.onInput(this.inputEl.value + "\r");
       }
-      this.inputEl.value = "";
+      // Apply inputMode setting: select text or clear input
+      if (this.inputMode === 'select') {
+        this.preserveSelection = true; // Ignore backend's empty setText
+        // Use setTimeout to select after any pending events are processed
+        setTimeout(() => {
+          this.inputEl.select();
+        }, 0);
+      } else {
+        this.inputEl.value = "";
+      }
       this.backendHasText = false;
     } else if (e.key === "Escape") {
       e.preventDefault();
@@ -125,9 +142,11 @@ export class InputLine {
       }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
+      this.preserveSelection = false; // Allow history to replace text
       this.onInput("\x1b[A");
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
+      this.preserveSelection = false; // Allow history to replace text
       this.onInput("\x1b[B");
     } else if (e.key === "ArrowRight") {
       // Let default cursor movement work in input
@@ -188,6 +207,14 @@ export class InputLine {
   }
 
   setText(text: string): void {
+    // In select mode, ignore backend updates that would clear or repeat the selected text
+    if (this.preserveSelection) {
+      if (text === '' || text === this.inputEl.value) {
+        return; // Keep the selected text
+      }
+      // Different non-empty text (e.g., history navigation) - allow it
+      this.preserveSelection = false;
+    }
     this.inputEl.value = text;
     // Only mark backendHasText if this is a tab completion response
     if (this.awaitingCompletion) {
@@ -197,6 +224,10 @@ export class InputLine {
   }
 
   setCursor(position: number): void {
+    // Don't change cursor if we're preserving selection
+    if (this.preserveSelection) {
+      return;
+    }
     this.inputEl.setSelectionRange(position, position);
   }
 
@@ -210,5 +241,9 @@ export class InputLine {
 
   clear(): void {
     this.inputEl.value = "";
+  }
+
+  setInputMode(mode: InputMode): void {
+    this.inputMode = mode;
   }
 }
