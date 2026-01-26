@@ -117,7 +117,7 @@ export class InputLine {
         setTimeout(() => {
           this.inputEl.focus();
           this.inputEl.select();
-        }, 50);
+        }, 20);
       } else {
         this.inputEl.value = "";
       }
