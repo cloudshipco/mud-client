@@ -18,10 +18,10 @@ jobs:
       - run: bun install
 
       - name: Build macOS arm64
-        run: bun build --compile --target=bun-darwin-arm64 --outfile=mud-client-macos-arm64 src/raw/index.ts
+        run: bun build --compile --target=bun-darwin-arm64 --outfile=twilite-macos-arm64 src/raw/index.ts
 
       - name: Build macOS x64
-        run: bun build --compile --target=bun-darwin-x64 --outfile=mud-client-macos-x64 src/raw/index.ts
+        run: bun build --compile --target=bun-darwin-x64 --outfile=twilite-macos-x64 src/raw/index.ts
 
       - name: Import certificate
         env:
@@ -55,8 +55,8 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          codesign --force --options runtime --entitlements entitlements.plist --sign "$APPLE_SIGNING_IDENTITY" mud-client-macos-arm64
-          codesign --force --options runtime --entitlements entitlements.plist --sign "$APPLE_SIGNING_IDENTITY" mud-client-macos-x64
+          codesign --force --options runtime --entitlements entitlements.plist --sign "$APPLE_SIGNING_IDENTITY" twilite-macos-arm64
+          codesign --force --options runtime --entitlements entitlements.plist --sign "$APPLE_SIGNING_IDENTITY" twilite-macos-x64
 
       - name: Setup notarization API key
         run: |
@@ -69,16 +69,16 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           # Notarize arm64
-          zip mud-client-macos-arm64.zip mud-client-macos-arm64
-          xcrun notarytool submit mud-client-macos-arm64.zip \
+          zip twilite-macos-arm64.zip twilite-macos-arm64
+          xcrun notarytool submit twilite-macos-arm64.zip \
             --key ~/private_keys/AuthKey_${APPLE_API_KEY}.p8 \
             --key-id "$APPLE_API_KEY" \
             --issuer "$APPLE_API_ISSUER" \
             --wait
 
           # Notarize x64
-          zip mud-client-macos-x64.zip mud-client-macos-x64
-          xcrun notarytool submit mud-client-macos-x64.zip \
+          zip twilite-macos-x64.zip twilite-macos-x64
+          xcrun notarytool submit twilite-macos-x64.zip \
             --key ~/private_keys/AuthKey_${APPLE_API_KEY}.p8 \
             --key-id "$APPLE_API_KEY" \
             --issuer "$APPLE_API_ISSUER" \
@@ -89,8 +89,8 @@ jobs:
         if: github.event_name == 'release'
         with:
           files: |
-            mud-client-macos-arm64
-            mud-client-macos-x64
+            twilite-macos-arm64
+            twilite-macos-x64
 
   build-linux:
     runs-on: ubuntu-latest
@@ -104,18 +104,18 @@ jobs:
       - run: bun install
 
       - name: Build Linux x64
-        run: bun build --compile --target=bun-linux-x64 --outfile=mud-client-linux-x64 src/raw/index.ts
+        run: bun build --compile --target=bun-linux-x64 --outfile=twilite-linux-x64 src/raw/index.ts
 
       - name: Build Linux arm64
-        run: bun build --compile --target=bun-linux-arm64 --outfile=mud-client-linux-arm64 src/raw/index.ts
+        run: bun build --compile --target=bun-linux-arm64 --outfile=twilite-linux-arm64 src/raw/index.ts
 
       - name: Upload binaries to release
         uses: softprops/action-gh-release@v2
         if: github.event_name == 'release'
         with:
           files: |
-            mud-client-linux-x64
-            mud-client-linux-arm64
+            twilite-linux-x64
+            twilite-linux-arm64
 
   build-windows:
     runs-on: ubuntu-latest
@@ -129,11 +129,11 @@ jobs:
       - run: bun install
 
       - name: Build Windows x64
-        run: bun build --compile --target=bun-windows-x64 --outfile=mud-client-windows-x64.exe src/raw/index.ts
+        run: bun build --compile --target=bun-windows-x64 --outfile=twilite-windows-x64.exe src/raw/index.ts
 
       - name: Upload binaries to release
         uses: softprops/action-gh-release@v2
         if: github.event_name == 'release'
         with:
           files: |
-            mud-client-windows-x64.exe
+            twilite-windows-x64.exe
