@@ -111,15 +111,15 @@ export class InputLine {
         this.onInput(this.inputEl.value + "\r");
       }
       // Apply inputMode setting: select text or clear input
+      // Ignore backend text updates until next user input
+      this.preserveSelection = true;
       if (this.inputMode === 'select') {
-        this.preserveSelection = true; // Ignore backend's empty setText
         // Use setTimeout to select after backend events are processed
         setTimeout(() => {
           this.inputEl.focus();
           this.inputEl.select();
         }, 20);
       } else {
-        this.preserveSelection = false; // Allow backend to clear
         this.inputEl.value = "";
       }
       this.backendHasText = false;
@@ -209,13 +209,10 @@ export class InputLine {
   }
 
   setText(text: string): void {
-    // In select mode, ignore backend updates that would clear or repeat the selected text
+    // Ignore all backend text updates after sending a command
+    // (history navigation clears preserveSelection before sending)
     if (this.preserveSelection) {
-      if (text === '' || text === this.inputEl.value) {
-        return; // Keep the selected text
-      }
-      // Different non-empty text (e.g., history navigation) - allow it
-      this.preserveSelection = false;
+      return;
     }
     this.inputEl.value = text;
     // Only mark backendHasText if this is a tab completion response
