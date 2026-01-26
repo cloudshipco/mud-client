@@ -119,6 +119,7 @@ export class InputLine {
           this.inputEl.select();
         }, 20);
       } else {
+        this.preserveSelection = false; // Allow backend to clear
         this.inputEl.value = "";
       }
       this.backendHasText = false;
@@ -246,5 +247,6 @@ export class InputLine {
 
   setInputMode(mode: InputMode): void {
     this.inputMode = mode;
+    this.preserveSelection = false; // Reset state when mode changes
   }
 }
