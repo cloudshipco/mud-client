@@ -2,6 +2,7 @@ import * as fs from "fs";
 import { TelnetClient } from "../connection/TelnetClient";
 import { CommandHistory } from "../input/CommandHistory";
 import { TabCompletion } from "../input/TabCompletion";
+import { FrecencyStore } from "../input/FrecencyStore";
 import { CharacterManager } from "../character/CharacterManager";
 import type { ConnectionConfig } from "../character/Connection";
 import type { CharacterConfig } from "../character/Character";
@@ -102,6 +103,7 @@ class MudClient {
   private client: TelnetClient;
   private history: CommandHistory;
   private tabCompletion: TabCompletion;
+  private frecencyStore: FrecencyStore;
   private charManager: CharacterManager;
   private settings: SettingsManager;
   private menu: Menu;
@@ -120,7 +122,7 @@ class MudClient {
   private input = "";
   private cursorPos = 0;
   private inputSelected = false; // Entire input is selected (after sending command)
-  private wordBuffer: Set<string> = new Set();
+  private wordBuffer: Map<string, number> = new Map(); // word -> timestamp for frecency
   private connected = false;
   private promptText = "> ";
   private inputLineCount = 1; // Number of lines the input currently occupies
@@ -173,7 +175,8 @@ class MudClient {
     this.client = new TelnetClient();
     this.history = new CommandHistory();
     this.tabCompletion = new TabCompletion();
-    this.charManager = new CharacterManager(this.history);
+    this.frecencyStore = new FrecencyStore();
+    this.charManager = new CharacterManager(this.history, this.frecencyStore);
     this.settings = new SettingsManager();
     this.menu = new Menu();
     this.prompt = new TextPrompt();
@@ -1236,6 +1239,13 @@ class MudClient {
         return;
       }
 
+      // Track tab completion acceptance for frecency
+      const completedWord = this.tabCompletion.getLastCompletedWord();
+      if (completedWord && this.input.toLowerCase().includes(completedWord.toLowerCase())) {
+        this.frecencyStore.recordAcceptance(completedWord);
+      }
+      this.tabCompletion.clearLastCompletedWord();
+
       if (this.input.trim()) {
         this.echoCommand(this.input);
       }
@@ -1306,7 +1316,7 @@ class MudClient {
 
       // Default word completion
       const words = this.getCompletionWords();
-      const completed = this.tabCompletion.complete(this.input, words);
+      const completed = this.tabCompletion.complete(this.input, words, this.frecencyStore);
       this.input = completed;
       this.cursorPos = this.input.length;
       this.redrawInput();
@@ -2701,19 +2711,29 @@ class MudClient {
     const stripped = text.replace(/\x1b\[[0-9;]*m/g, "");
     const words = stripped.match(/\b[a-zA-Z][a-zA-Z0-9_'-]*\b/g);
     if (words) {
+      const now = Date.now();
       for (const word of words) {
         if (word.length >= 2) {
-          this.wordBuffer.add(word.toLowerCase());
+          this.wordBuffer.set(word.toLowerCase(), now);
+
+          // Evict oldest entries when over limit
           if (this.wordBuffer.size > 5000) {
-            const first = this.wordBuffer.values().next().value;
-            if (first) this.wordBuffer.delete(first);
+            let oldestKey: string | null = null;
+            let oldestTime = Infinity;
+            for (const [key, time] of this.wordBuffer) {
+              if (time < oldestTime) {
+                oldestTime = time;
+                oldestKey = key;
+              }
+            }
+            if (oldestKey) this.wordBuffer.delete(oldestKey);
           }
         }
       }
     }
   }
 
-  private getCompletionWords(): string[] {
+  private getCompletionWords(): Map<string, number> | string[] {
     const input = this.input.trimStart();
 
     // Command completion (e.g., /s -> /set, /con -> /connect)
@@ -2751,8 +2771,8 @@ class MudClient {
       }
     }
 
-    // Default: use word buffer
-    return Array.from(this.wordBuffer);
+    // Default: use word buffer with timestamps for frecency
+    return this.wordBuffer;
   }
 
   // Refresh screen after pane layout changes

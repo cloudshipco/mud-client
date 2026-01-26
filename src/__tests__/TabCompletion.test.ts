@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { TabCompletion } from "../input/TabCompletion";
+import { FrecencyStore } from "../input/FrecencyStore";
 
 describe("TabCompletion", () => {
   let completion: TabCompletion;
@@ -207,6 +208,135 @@ describe("TabCompletion", () => {
       completion.complete("s", words);
       completion.reset();
       expect(completion.isActive()).toBe(false);
+    });
+  });
+
+  describe("frecency-based completion", () => {
+    let frecencyStore: FrecencyStore;
+
+    beforeEach(() => {
+      frecencyStore = new FrecencyStore();
+    });
+
+    test("sorts by frecency score when using Map with timestamps", () => {
+      const now = Date.now();
+      const wordMap = new Map<string, number>([
+        ["sword", now - 1000 * 60 * 30], // 30 minutes ago (lower recency)
+        ["shield", now - 1000 * 60 * 2], // 2 minutes ago (higher recency)
+        ["staff", now - 1000 * 60 * 15], // 15 minutes ago
+      ]);
+
+      // With no frequency data, shield should be first (most recent)
+      const result = completion.complete("s", wordMap, frecencyStore);
+      expect(result).toBe("shield");
+    });
+
+    test("single acceptance does not override recency", () => {
+      const now = Date.now();
+      const wordMap = new Map<string, number>([
+        ["sword", now - 1000 * 60 * 10], // 10 minutes ago
+        ["shield", now], // just now
+      ]);
+
+      // Single acceptance for sword shouldn't beat shield's recency
+      frecencyStore.recordAcceptance("sword");
+
+      const result = completion.complete("s", wordMap, frecencyStore);
+      expect(result).toBe("shield");
+    });
+
+    test("prefers frequently accepted completions over older words", () => {
+      const now = Date.now();
+      const wordMap = new Map<string, number>([
+        ["sword", now], // recent
+        ["shield", now], // same recency
+        ["staff", now], // same recency
+      ]);
+
+      // Record many acceptances for staff (need 2+ for frequency to count)
+      for (let i = 0; i < 10; i++) {
+        frecencyStore.recordAcceptance("staff");
+      }
+
+      // Staff should now be first due to high frequency
+      const result = completion.complete("s", wordMap, frecencyStore);
+      expect(result).toBe("staff");
+    });
+
+    test("very recent words beat older frequently-used words", () => {
+      const now = Date.now();
+      const wordMap = new Map<string, number>([
+        ["sword", now - 1000 * 60 * 30], // 30 minutes ago
+        ["shield", now], // just now
+      ]);
+
+      // Even with several acceptances, shield (just seen) should win
+      for (let i = 0; i < 5; i++) {
+        frecencyStore.recordAcceptance("sword");
+      }
+
+      const result = completion.complete("s", wordMap, frecencyStore);
+      expect(result).toBe("shield");
+    });
+
+    test("heavily used words eventually beat recent words", () => {
+      const now = Date.now();
+      const wordMap = new Map<string, number>([
+        ["sword", now - 1000 * 60 * 10], // 10 minutes ago
+        ["shield", now], // just now
+      ]);
+
+      // With many acceptances, sword should eventually win
+      for (let i = 0; i < 15; i++) {
+        frecencyStore.recordAcceptance("sword");
+      }
+
+      const result = completion.complete("s", wordMap, frecencyStore);
+      expect(result).toBe("sword");
+    });
+
+    test("falls back to length-based sorting for string arrays", () => {
+      // When passing a simple string array, should use legacy sorting
+      const result = completion.complete("s", words);
+      expect(result).toBe("staff"); // shortest, alphabetically first
+    });
+
+    test("tracks last completed word", () => {
+      expect(completion.getLastCompletedWord()).toBeNull();
+
+      completion.complete("s", words);
+      expect(completion.getLastCompletedWord()).toBe("staff");
+
+      completion.complete("staff", words);
+      expect(completion.getLastCompletedWord()).toBe("sword");
+    });
+
+    test("clears last completed word on cycle back to original", () => {
+      // Complete all s-words
+      completion.complete("s", words); // staff
+      completion.complete("staff", words); // sword
+      completion.complete("sword", words); // shield
+      completion.complete("shield", words); // skeleton
+
+      // Cycle back to original
+      completion.complete("skeleton", words);
+      expect(completion.getLastCompletedWord()).toBeNull();
+    });
+
+    test("clears last completed word on reset", () => {
+      completion.complete("s", words);
+      expect(completion.getLastCompletedWord()).toBe("staff");
+
+      completion.reset();
+      expect(completion.getLastCompletedWord()).toBeNull();
+    });
+
+    test("clearLastCompletedWord clears the tracked word", () => {
+      completion.complete("s", words);
+      expect(completion.getLastCompletedWord()).toBe("staff");
+
+      completion.clearLastCompletedWord();
+      expect(completion.getLastCompletedWord()).toBeNull();
     });
   });
 });

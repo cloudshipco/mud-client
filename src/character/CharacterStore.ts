@@ -121,6 +121,10 @@ export class CharacterStore {
     return join(this.getConnectionDir(connectionId), "characters", `${characterId}.db`);
   }
 
+  private getCharacterFrecencyPath(connectionId: string, characterId: string): string {
+    return join(this.getConnectionDir(connectionId), "characters", `${characterId}-frecency.db`);
+  }
+
   listCharacters(connectionId: string): CharacterConfig[] {
     const charsDir = join(this.getConnectionDir(connectionId), "characters");
     if (!existsSync(charsDir)) {
@@ -206,6 +210,10 @@ export class CharacterStore {
 
   getHistoryDbPath(connectionId: string, characterId: string): string {
     return this.getCharacterHistoryPath(connectionId, characterId);
+  }
+
+  getFrecencyDbPath(connectionId: string, characterId: string): string {
+    return this.getCharacterFrecencyPath(connectionId, characterId);
   }
 
   setAlias(connectionId: string, characterId: string, name: string, expansion: string): void {

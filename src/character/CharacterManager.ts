@@ -4,6 +4,7 @@ import type { ConnectionConfig } from "./Connection";
 import { CharacterStore } from "./CharacterStore";
 import { AliasStore } from "../alias/AliasStore";
 import type { CommandHistory } from "../input/CommandHistory";
+import type { FrecencyStore } from "../input/FrecencyStore";
 
 export class CharacterManager extends EventEmitter {
   private store: CharacterStore;
@@ -11,12 +12,14 @@ export class CharacterManager extends EventEmitter {
   private currentConnection: ConnectionConfig | null = null;
   private currentCharacter: CharacterConfig | null = null;
   private history: CommandHistory;
+  private frecencyStore: FrecencyStore | null = null;
 
-  constructor(history: CommandHistory) {
+  constructor(history: CommandHistory, frecencyStore?: FrecencyStore) {
     super();
     this.store = new CharacterStore();
     this.aliasStore = new AliasStore();
     this.history = history;
+    this.frecencyStore = frecencyStore || null;
   }
 
   // === Connection Methods ===
@@ -52,6 +55,7 @@ export class CharacterManager extends EventEmitter {
     if (this.currentConnection?.id === id) {
       if (this.currentCharacter) {
         this.history.close();
+        this.frecencyStore?.close();
         this.currentCharacter = null;
       }
       this.currentConnection = null;
@@ -98,9 +102,10 @@ export class CharacterManager extends EventEmitter {
       return false;
     }
 
-    // Close previous history
+    // Close previous history and frecency
     if (this.currentCharacter) {
       this.history.close();
+      this.frecencyStore?.close();
     }
 
     this.currentCharacter = char;
@@ -109,6 +114,12 @@ export class CharacterManager extends EventEmitter {
     // Initialize history for this character
     const historyPath = this.store.getHistoryDbPath(this.currentConnection.id, characterId);
     this.history.initFromPath(historyPath);
+
+    // Initialize frecency store for this character
+    if (this.frecencyStore) {
+      const frecencyPath = this.store.getFrecencyDbPath(this.currentConnection.id, characterId);
+      this.frecencyStore.initFromPath(frecencyPath);
+    }
 
     this.emit("characterSelected", char);
     return true;
@@ -122,6 +133,7 @@ export class CharacterManager extends EventEmitter {
     // If deleting the current character, clear it
     if (this.currentCharacter?.id === characterId) {
       this.history.close();
+      this.frecencyStore?.close();
       this.currentCharacter = null;
     }
 
