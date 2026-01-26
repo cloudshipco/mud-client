@@ -46,27 +46,12 @@ async function openSettings() {
 }
 
 async function main() {
-  // Load saved settings and config
-  const [settings, config] = await Promise.all([loadSettings(), loadConfig()]);
-
-  // Apply settings via CSS custom properties
-  const root = document.documentElement;
-  root.style.setProperty("--font-family", settings.fontFamily);
-  root.style.setProperty("--font-size", `${settings.fontSize}px`);
-  root.style.setProperty("--font-weight", String(settings.fontWeight));
-  root.style.setProperty("--font-weight-bold", String(settings.fontWeightBold));
-  root.style.setProperty("--line-height", `${settings.lineHeight}`);
-  root.style.setProperty("--letter-spacing", `${settings.letterSpacing}px`);
-
-  // Set ANSI color palette from theme (also sets --theme-bg, --theme-fg)
-  applyThemeColors(settings.theme);
-
-  // Create app container
+  // Create app container immediately (before async operations)
   const appContainer = document.createElement("div");
   appContainer.className = "app-container";
   document.body.appendChild(appContainer);
 
-  // Create status bar (at very top)
+  // Create status bar immediately so window is draggable right away
   const statusBar = document.createElement("div");
   statusBar.className = "status-bar";
   statusBar.setAttribute("data-tauri-drag-region", "");
@@ -84,6 +69,24 @@ async function main() {
   const panesContainer = document.createElement("div");
   panesContainer.className = "panes-container";
   appContainer.appendChild(panesContainer);
+
+  // Keep the HTML fallback drag region - it provides dragging during any loading state
+  // Just ensure it doesn't visually interfere (it's transparent anyway)
+
+  // Load saved settings and config
+  const [settings, config] = await Promise.all([loadSettings(), loadConfig()]);
+
+  // Apply settings via CSS custom properties
+  const root = document.documentElement;
+  root.style.setProperty("--font-family", settings.fontFamily);
+  root.style.setProperty("--font-size", `${settings.fontSize}px`);
+  root.style.setProperty("--font-weight", String(settings.fontWeight));
+  root.style.setProperty("--font-weight-bold", String(settings.fontWeightBold));
+  root.style.setProperty("--line-height", `${settings.lineHeight}`);
+  root.style.setProperty("--letter-spacing", `${settings.letterSpacing}px`);
+
+  // Set ANSI color palette from theme (also sets --theme-bg, --theme-fg)
+  applyThemeColors(settings.theme);
 
   // Create pane renderers - we'll create them dynamically as events arrive
   const panes: Map<string, PaneRenderer> = new Map();
@@ -334,15 +337,9 @@ async function main() {
     applyThemeColors(newSettings.theme);
   }
 
-  // Keyboard shortcuts and global key handling
+  // Global key handling for menus, prompts, and scrolling
+  // Note: Cmd/Ctrl+, for settings is handled by the native menu accelerator
   window.addEventListener("keydown", (e) => {
-    // Cmd/Ctrl + , to open settings
-    if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-      e.preventDefault();
-      openSettings();
-      return;
-    }
-
     // When menu or prompt is showing, capture navigation keys globally
     // This ensures arrow keys work even if input doesn't have focus
     if (menuRenderer.isVisible() || promptRenderer.isVisible()) {

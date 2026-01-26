@@ -205,6 +205,13 @@
   line-height: 1.2;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-app-region: drag;
+  z-index: 10000; /* Above menu overlay */
+}
+
+/* Child elements shouldn't block drag */
+.status-bar * {
+  -webkit-app-region: drag;
 }
 
 .status-bar.disconnected {
@@ -254,7 +261,7 @@
 /* Menu overlay */
 .menu-overlay {
   position: fixed;
-  top: 0;
+  top: 38px; /* Below drag region / status bar area */
   left: 0;
   right: 0;
   bottom: 0;

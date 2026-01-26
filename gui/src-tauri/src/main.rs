@@ -6,7 +6,8 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter, Manager};
-use tauri::menu::{Menu, Submenu, PredefinedMenuItem};
+use tauri::menu::{Menu, Submenu, PredefinedMenuItem, MenuItem};
+use tauri::WebviewUrl;
 
 struct PtyWriter(Arc<Mutex<Option<Box<dyn Write + Send>>>>);
 struct PtyMaster(Arc<Mutex<Option<Box<dyn portable_pty::MasterPty + Send>>>>);
@@ -144,6 +145,30 @@ fn spawn_pty(
     Ok(())
 }
 
+fn open_settings_window(app: &AppHandle) {
+    // Check if settings window already exists
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.set_focus();
+        return;
+    }
+
+    // Create new settings window
+    let builder = tauri::WebviewWindowBuilder::new(
+        app,
+        "settings",
+        WebviewUrl::App("settings.html".into()),
+    )
+    .title("Settings")
+    .inner_size(480.0, 580.0)
+    .resizable(true)
+    .minimizable(false)
+    .center();
+
+    if let Err(e) = builder.build() {
+        eprintln!("Failed to create settings window: {}", e);
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
@@ -153,12 +178,22 @@ fn main() {
         .manage(PtyMaster(Arc::new(Mutex::new(None))))
         .setup(|app| {
             // Create app menu with standard macOS items
+            let settings_item = MenuItem::with_id(
+                app,
+                "settings",
+                "Settings...",
+                true,
+                Some("CmdOrCtrl+,"),
+            )?;
+
             let app_submenu = Submenu::with_items(
                 app,
                 "Twilite",
                 true,
                 &[
                     &PredefinedMenuItem::about(app, Some("About Twilite"), None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &settings_item,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::services(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
@@ -201,6 +236,11 @@ fn main() {
             app.set_menu(menu)?;
 
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "settings" {
+                open_settings_window(app);
+            }
         })
         .invoke_handler(tauri::generate_handler![write_to_pty, resize_pty, spawn_pty, set_window_title])
         .run(tauri::generate_context!())

@@ -21,6 +21,17 @@
   </style>
 </head>
 <body>
+  <!-- Drag region available immediately, before JS initializes -->
+  <div id="drag-region" data-tauri-drag-region style="
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 38px;
+    z-index: 99999;
+    -webkit-app-region: drag;
+    pointer-events: auto;
+  "></div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

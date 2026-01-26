@@ -85,6 +85,11 @@ export class InputLine {
   ]);
 
   private handleKeyDown(e: KeyboardEvent): void {
+    // Allow Cmd/Ctrl+, through for settings menu accelerator
+    if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+      return; // Let native menu handle it
+    }
+
     // In passthrough mode, send all keys directly to PTY
     if (this.passthroughMode) {
       e.preventDefault();
