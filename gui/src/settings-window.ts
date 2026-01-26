@@ -709,8 +709,8 @@ function bindButtons() {
       saves.push(savePanesConfig(currentPanesConfig));
     }
     await Promise.all(saves);
-    emitSettingsChange();
-    emitConfigChange();
+    await emitSettingsChange();
+    await emitConfigChange();
     getCurrentWindow().close();
   });
 
@@ -734,12 +734,12 @@ function bindButtons() {
   });
 }
 
-function emitSettingsChange() {
-  emit('settings-changed', currentSettings);
+async function emitSettingsChange() {
+  await emit('settings-changed', currentSettings);
 }
 
-function emitConfigChange() {
-  emit('config-changed', currentConfig);
+async function emitConfigChange() {
+  await emit('config-changed', currentConfig);
 }
 
 // Handle Escape key to close
