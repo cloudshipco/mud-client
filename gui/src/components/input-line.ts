@@ -93,9 +93,12 @@ export class InputLine {
       return;
     }
 
-    // Movement keys: when input is empty, send immediately to let the
-    // backend's movementKeys setting handle them.
-    if (this.inputEl.value.length === 0 && InputLine.MOVEMENT_KEYS.has(e.key)) {
+    // Movement keys: when input is empty OR entirely selected, send immediately
+    // to let the backend's movementKeys setting handle them.
+    // This allows movement keys to work in "select text" mode after sending a command.
+    const isEntirelySelected = this.inputEl.selectionStart === 0
+      && this.inputEl.selectionEnd === this.inputEl.value.length;
+    if ((this.inputEl.value.length === 0 || isEntirelySelected) && InputLine.MOVEMENT_KEYS.has(e.key)) {
       e.preventDefault();
       this.onInput(e.key);
       return;
