@@ -13,6 +13,7 @@ import { MenuRenderer } from "./components/menu-renderer";
 import { PromptRenderer } from "./components/prompt-renderer";
 import { applyThemeColors } from "./utils/ansi-parser";
 
+import "./styles/fonts.css";
 import "./styles/panes.css";
 
 let settingsWindow: WebviewWindow | null = null;
@@ -59,6 +60,9 @@ async function main() {
 
   // Set ANSI color palette from theme (also sets --theme-bg, --theme-fg)
   applyThemeColors(settings.theme);
+
+  // Apply window opacity
+  invoke("set_window_opacity", { opacity: settings.windowOpacity });
 
   // Create app container
   const appContainer = document.createElement("div");

@@ -1,0 +1,45 @@
+/**
+ * Monaspace Font Family
+ * https://monaspace.githubnext.com/
+ * Variable fonts supporting weights 200-800
+ */
+
+@font-face {
+  font-family: 'Monaspace Neon';
+  src: url('../fonts/MonaspaceNeon.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Monaspace Argon';
+  src: url('../fonts/MonaspaceArgon.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Monaspace Xenon';
+  src: url('../fonts/MonaspaceXenon.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Monaspace Radon';
+  src: url('../fonts/MonaspaceRadon.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Monaspace Krypton';
+  src: url('../fonts/MonaspaceKrypton.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}

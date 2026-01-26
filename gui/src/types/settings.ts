@@ -39,17 +39,19 @@ export interface TerminalSettings {
   cursorStyle: CursorStyle;
   cursorBlink: boolean;
   theme: TerminalTheme;
+  windowOpacity: number;
 }
 
 export const DEFAULT_SETTINGS: TerminalSettings = {
-  fontFamily: '"JetBrains Mono", "Fira Code", "SF Mono", Menlo, Monaco, "Courier New", monospace',
+  fontFamily: '"Monaspace Neon", monospace',
   fontSize: 14,
   fontWeight: 'normal',
   fontWeightBold: 'bold',
-  lineHeight: 1.0,
+  lineHeight: 1.3,
   letterSpacing: 0,
   cursorStyle: 'block',
   cursorBlink: true,
+  windowOpacity: 1.0,
   theme: {
     background: '#1e1e1e',
     foreground: '#d4d4d4',

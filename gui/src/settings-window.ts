@@ -38,6 +38,13 @@ import {
 type TabId = 'terminal' | 'config' | 'panes' | 'aliases';
 
 const FONT_FAMILIES = [
+  // Bundled fonts (Monaspace)
+  { value: '"Monaspace Neon", monospace', label: 'Monaspace Neon' },
+  { value: '"Monaspace Argon", monospace', label: 'Monaspace Argon' },
+  { value: '"Monaspace Xenon", monospace', label: 'Monaspace Xenon' },
+  { value: '"Monaspace Radon", monospace', label: 'Monaspace Radon' },
+  { value: '"Monaspace Krypton", monospace', label: 'Monaspace Krypton' },
+  // System fonts
   { value: '"JetBrains Mono", monospace', label: 'JetBrains Mono' },
   { value: '"Fira Code", monospace', label: 'Fira Code' },
   { value: '"SF Mono", monospace', label: 'SF Mono' },
@@ -123,7 +130,26 @@ function buildTerminalSections(): string {
   return `
     ${buildFontSection()}
     ${buildCursorSection()}
+    ${buildWindowSection()}
     ${buildColorsSection()}
+  `;
+}
+
+function buildWindowSection(): string {
+  const s = currentSettings;
+  const opacityPercent = Math.round(s.windowOpacity * 100);
+  return `
+    <div class="settings-section">
+      <h3>Window</h3>
+      <div class="settings-row">
+        <label class="settings-label" for="window-opacity">Transparency</label>
+        <div class="settings-slider-group">
+          <input type="range" class="settings-slider" id="window-opacity" data-setting="windowOpacity"
+                 value="${s.windowOpacity}" min="0.5" max="1" step="0.05">
+          <span class="settings-slider-value" id="window-opacity-value">${opacityPercent}%</span>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -673,10 +699,16 @@ function updateSetting(
       break;
     case 'fontSize':
     case 'lineHeight':
-    case 'letterSpacing': {
+    case 'letterSpacing':
+    case 'windowOpacity': {
       const value = parseFloat(el.value);
       if (!isNaN(value)) {
         currentSettings[setting] = value;
+        // Update the slider value display for opacity
+        if (setting === 'windowOpacity') {
+          const valueEl = document.getElementById('window-opacity-value');
+          if (valueEl) valueEl.textContent = `${Math.round(value * 100)}%`;
+        }
       }
       break;
     }
