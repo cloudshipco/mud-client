@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 import { loadSettings } from "./services/settings-store";
-import { loadConfig } from "./services/config-store";
+import { loadConfig, AppConfig } from "./services/config-store";
 import { TerminalSettings } from "./types/settings";
 import { parseGuiEvent, GuiEvent } from "./types/gui-events";
 import { PaneRenderer } from "./components/pane-renderer";
@@ -312,6 +312,12 @@ async function main() {
   listen<TerminalSettings>("settings-changed", (event) => {
     const newSettings = event.payload;
     applySettings(newSettings);
+  });
+
+  // Listen for config changes
+  listen<AppConfig>("config-changed", (event) => {
+    const newConfig = event.payload;
+    inputLine.setInputMode(newConfig.inputMode);
   });
 
   // Apply settings to the app using CSS custom properties

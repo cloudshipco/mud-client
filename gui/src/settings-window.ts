@@ -710,6 +710,7 @@ function bindButtons() {
     }
     await Promise.all(saves);
     emitSettingsChange();
+    emitConfigChange();
     getCurrentWindow().close();
   });
 
@@ -735,6 +736,10 @@ function bindButtons() {
 
 function emitSettingsChange() {
   emit('settings-changed', currentSettings);
+}
+
+function emitConfigChange() {
+  emit('config-changed', currentConfig);
 }
 
 // Handle Escape key to close
