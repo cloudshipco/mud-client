@@ -113,8 +113,9 @@ export class InputLine {
       // Apply inputMode setting: select text or clear input
       if (this.inputMode === 'select') {
         this.preserveSelection = true; // Ignore backend's empty setText
-        // Use setTimeout to select after any pending events are processed
+        // Use setTimeout to select after backend events are processed
         setTimeout(() => {
+          this.inputEl.focus();
           this.inputEl.select();
         }, 0);
       } else {

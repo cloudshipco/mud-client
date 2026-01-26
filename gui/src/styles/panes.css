@@ -187,6 +187,7 @@
 
 .input-field::selection {
   background: #264f78;
+  color: #ffffff;
 }
 
 /* Status bar (at top) */
