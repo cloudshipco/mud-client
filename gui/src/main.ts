@@ -61,9 +61,6 @@ async function main() {
   // Set ANSI color palette from theme (also sets --theme-bg, --theme-fg)
   applyThemeColors(settings.theme);
 
-  // Apply window opacity
-  invoke("set_window_opacity", { opacity: settings.windowOpacity });
-
   // Create app container
   const appContainer = document.createElement("div");
   appContainer.className = "app-container";

@@ -130,26 +130,7 @@ function buildTerminalSections(): string {
   return `
     ${buildFontSection()}
     ${buildCursorSection()}
-    ${buildWindowSection()}
     ${buildColorsSection()}
-  `;
-}
-
-function buildWindowSection(): string {
-  const s = currentSettings;
-  const opacityPercent = Math.round(s.windowOpacity * 100);
-  return `
-    <div class="settings-section">
-      <h3>Window</h3>
-      <div class="settings-row">
-        <label class="settings-label" for="window-opacity">Transparency</label>
-        <div class="settings-slider-group">
-          <input type="range" class="settings-slider" id="window-opacity" data-setting="windowOpacity"
-                 value="${s.windowOpacity}" min="0.5" max="1" step="0.05">
-          <span class="settings-slider-value" id="window-opacity-value">${opacityPercent}%</span>
-        </div>
-      </div>
-    </div>
   `;
 }
 
@@ -699,16 +680,10 @@ function updateSetting(
       break;
     case 'fontSize':
     case 'lineHeight':
-    case 'letterSpacing':
-    case 'windowOpacity': {
+    case 'letterSpacing': {
       const value = parseFloat(el.value);
       if (!isNaN(value)) {
         currentSettings[setting] = value;
-        // Update the slider value display for opacity
-        if (setting === 'windowOpacity') {
-          const valueEl = document.getElementById('window-opacity-value');
-          if (valueEl) valueEl.textContent = `${Math.round(value * 100)}%`;
-        }
       }
       break;
     }

@@ -39,7 +39,6 @@ export interface TerminalSettings {
   cursorStyle: CursorStyle;
   cursorBlink: boolean;
   theme: TerminalTheme;
-  windowOpacity: number;
 }
 
 export const DEFAULT_SETTINGS: TerminalSettings = {
@@ -51,7 +50,6 @@ export const DEFAULT_SETTINGS: TerminalSettings = {
   letterSpacing: 0,
   cursorStyle: 'block',
   cursorBlink: true,
-  windowOpacity: 1.0,
   theme: {
     background: '#1e1e1e',
     foreground: '#d4d4d4',
