@@ -12,6 +12,8 @@ export class InputLine {
   private inputEl: HTMLInputElement;
   private onInput: (data: string) => void;
   private passthroughMode = false; // When true, send all keys directly to PTY
+  private awaitingCompletion = false; // True after sending tab, waiting for completion response
+  private backendHasText = false; // True when backend's buffer matches our input (after tab completion)
 
   constructor(parent: HTMLElement, options: InputLineOptions) {
     this.onInput = options.onInput;
@@ -37,6 +39,15 @@ export class InputLine {
 
     // Handle key events
     this.inputEl.addEventListener("keydown", (e) => this.handleKeyDown(e));
+
+    // When user types after tab completion, clear backend's buffer
+    this.inputEl.addEventListener("input", () => {
+      if (this.backendHasText) {
+        // Clear backend's line since user is editing
+        this.onInput("\x15");
+        this.backendHasText = false;
+      }
+    });
 
     parent.appendChild(this.container);
   }
@@ -85,14 +96,27 @@ export class InputLine {
     // Normal mode: handle input locally, send commands on Enter
     if (e.key === "Enter") {
       e.preventDefault();
-      this.onInput(this.inputEl.value + "\r");
+      if (this.backendHasText) {
+        // Backend already has the text (e.g., after tab completion), just send Enter
+        this.onInput("\r");
+      } else {
+        this.onInput(this.inputEl.value + "\r");
+      }
       this.inputEl.value = "";
+      this.backendHasText = false;
     } else if (e.key === "Escape") {
       e.preventDefault();
       this.onInput("\x1b");
     } else if (e.key === "Tab") {
       e.preventDefault();
-      this.onInput("\t");
+      // Send current input + tab for completion
+      if (!this.backendHasText) {
+        this.onInput(this.inputEl.value + "\t");
+      } else {
+        // Backend already has text, just send tab
+        this.onInput("\t");
+      }
+      this.awaitingCompletion = true;
     } else if (e.key === "Backspace") {
       // Let default handle it, but also send to PTY if empty
       if (this.inputEl.value.length === 0) {
@@ -165,6 +189,11 @@ export class InputLine {
 
   setText(text: string): void {
     this.inputEl.value = text;
+    // Only mark backendHasText if this is a tab completion response
+    if (this.awaitingCompletion) {
+      this.backendHasText = true;
+      this.awaitingCompletion = false;
+    }
   }
 
   setCursor(position: number): void {
