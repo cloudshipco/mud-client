@@ -54,6 +54,12 @@ jobs:
         run: |
           bun build --compile --target=${{ matrix.bun_target }} --outfile=gui/src-tauri/binaries/mud-client-${{ matrix.sidecar_suffix }} src/raw/index.ts
 
+      - name: Setup notarization API key (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          mkdir -p ~/private_keys
+          echo "${{ secrets.APPLE_API_KEY_CONTENT }}" | base64 --decode > ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
+
       - name: Build Tauri app (macOS)
         if: matrix.platform == 'macos-latest'
         uses: tauri-apps/tauri-action@v0
@@ -62,8 +68,8 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: gui
