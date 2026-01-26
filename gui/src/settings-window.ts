@@ -28,8 +28,14 @@ import {
   savePanesConfig,
   updatePane,
 } from './services/panes-config-store';
+import {
+  AliasMap,
+  loadAliases,
+  saveAliases,
+  resetAliases,
+} from './services/aliases-config-store';
 
-type TabId = 'terminal' | 'config' | 'panes';
+type TabId = 'terminal' | 'config' | 'panes' | 'aliases';
 
 const FONT_FAMILIES = [
   { value: '"JetBrains Mono", monospace', label: 'JetBrains Mono' },
@@ -67,17 +73,21 @@ let currentConfig: AppConfig;
 let originalConfig: AppConfig;
 let currentPanesConfig: PanesConfig | null = null;
 let originalPanesConfig: PanesConfig | null = null;
+let currentAliases: AliasMap = {};
+let originalAliases: AliasMap = {};
 let activeTab: TabId = 'terminal';
 
 async function init() {
-  [currentSettings, currentConfig, currentPanesConfig] = await Promise.all([
+  [currentSettings, currentConfig, currentPanesConfig, currentAliases] = await Promise.all([
     loadSettings(),
     loadConfig(),
     loadPanesConfig(),
+    loadAliases(),
   ]);
   originalSettings = JSON.parse(JSON.stringify(currentSettings));
   originalConfig = JSON.parse(JSON.stringify(currentConfig));
   originalPanesConfig = currentPanesConfig ? JSON.parse(JSON.stringify(currentPanesConfig)) : null;
+  originalAliases = JSON.parse(JSON.stringify(currentAliases));
   render();
 }
 
@@ -91,9 +101,10 @@ function render() {
         <button class="settings-tab ${activeTab === 'terminal' ? 'active' : ''}" data-tab="terminal">Terminal</button>
         <button class="settings-tab ${activeTab === 'config' ? 'active' : ''}" data-tab="config">Config</button>
         <button class="settings-tab ${activeTab === 'panes' ? 'active' : ''}" data-tab="panes">Panes</button>
+        <button class="settings-tab ${activeTab === 'aliases' ? 'active' : ''}" data-tab="aliases">Aliases</button>
       </div>
       <div class="settings-content">
-        ${activeTab === 'terminal' ? buildTerminalSections() : activeTab === 'config' ? buildConfigSection() : buildPanesSection()}
+        ${activeTab === 'terminal' ? buildTerminalSections() : activeTab === 'config' ? buildConfigSection() : activeTab === 'panes' ? buildPanesSection() : buildAliasesSection()}
       </div>
       <div class="settings-footer">
         <button class="settings-btn settings-btn-danger" id="reset-btn">Reset to Defaults</button>
@@ -291,6 +302,40 @@ function formatPaneFilter(pane: PaneConfig): string {
   return parts.length > 0 ? parts.join(' | ') : 'all messages';
 }
 
+function buildAliasesSection(): string {
+  const aliasEntries = Object.entries(currentAliases).sort((a, b) => a[0].localeCompare(b[0]));
+
+  const aliasRows = aliasEntries.map(([name, expansion]) => `
+    <div class="settings-alias-row" data-alias-name="${escapeHtml(name)}">
+      <input type="text" class="settings-input settings-alias-name" data-alias-key="${escapeHtml(name)}"
+             value="${escapeHtml(name)}" placeholder="Alias name">
+      <input type="text" class="settings-input settings-alias-expansion" data-alias-value="${escapeHtml(name)}"
+             value="${escapeHtml(expansion)}" placeholder="Expansion">
+      <button class="settings-btn settings-btn-icon" data-alias-delete="${escapeHtml(name)}" title="Delete alias">×</button>
+    </div>
+  `).join('');
+
+  return `
+    <div class="settings-section">
+      <h3>Aliases</h3>
+      <p class="settings-description">
+        Define shortcuts that expand into longer commands. For example, alias "k" could expand to "kill goblin".
+      </p>
+      <div class="settings-aliases-list">
+        ${aliasRows || '<div class="settings-empty"><p>No aliases defined.</p></div>'}
+      </div>
+      <div class="settings-alias-add">
+        <input type="text" class="settings-input settings-alias-name" id="new-alias-name" placeholder="New alias">
+        <input type="text" class="settings-input settings-alias-expansion" id="new-alias-expansion" placeholder="Expansion">
+        <button class="settings-btn settings-btn-secondary" id="add-alias-btn">Add</button>
+      </div>
+    </div>
+    <div class="settings-note">
+      Changes require restarting the client to take effect.
+    </div>
+  `;
+}
+
 function bindTabs() {
   const tabs = document.querySelectorAll('.settings-tab');
   tabs.forEach((tab) => {
@@ -480,6 +525,9 @@ function bindInputs() {
 
   // Pane inputs (panes tab)
   bindPaneInputs();
+
+  // Alias inputs (aliases tab)
+  bindAliasInputs();
 }
 
 function bindPaneInputs() {
@@ -525,6 +573,63 @@ function bindPaneInputs() {
         currentPanesConfig = updatePane(currentPanesConfig!, paneId, { maxMessages });
       }
     });
+  });
+}
+
+function bindAliasInputs() {
+  // Edit alias name (rename)
+  document.querySelectorAll('[data-alias-key]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const originalName = el.dataset.aliasKey!;
+    el.addEventListener('change', () => {
+      const newName = el.value.trim();
+      if (newName && newName !== originalName && !currentAliases[newName]) {
+        const expansion = currentAliases[originalName];
+        delete currentAliases[originalName];
+        currentAliases[newName] = expansion;
+        render();
+      } else if (!newName || newName === originalName) {
+        el.value = originalName;
+      } else {
+        // Name already exists
+        el.value = originalName;
+      }
+    });
+  });
+
+  // Edit alias expansion
+  document.querySelectorAll('[data-alias-value]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const name = el.dataset.aliasValue!;
+    el.addEventListener('change', () => {
+      if (el.value.trim()) {
+        currentAliases[name] = el.value;
+      }
+    });
+  });
+
+  // Delete alias
+  document.querySelectorAll('[data-alias-delete]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const name = el.dataset.aliasDelete!;
+    el.addEventListener('click', () => {
+      delete currentAliases[name];
+      render();
+    });
+  });
+
+  // Add new alias
+  document.getElementById('add-alias-btn')?.addEventListener('click', () => {
+    const nameInput = document.getElementById('new-alias-name') as HTMLInputElement;
+    const expansionInput = document.getElementById('new-alias-expansion') as HTMLInputElement;
+
+    const name = nameInput?.value.trim();
+    const expansion = expansionInput?.value.trim();
+
+    if (name && expansion && !currentAliases[name]) {
+      currentAliases[name] = expansion;
+      render();
+    }
   });
 }
 
@@ -595,7 +700,11 @@ function updateSetting(
 
 function bindButtons() {
   document.getElementById('apply-btn')?.addEventListener('click', async () => {
-    const saves: Promise<void>[] = [saveSettings(currentSettings), saveConfig(currentConfig)];
+    const saves: Promise<void>[] = [
+      saveSettings(currentSettings),
+      saveConfig(currentConfig),
+      saveAliases(currentAliases),
+    ];
     if (currentPanesConfig) {
       saves.push(savePanesConfig(currentPanesConfig));
     }
@@ -616,6 +725,8 @@ function bindButtons() {
       emitSettingsChange();
     } else if (activeTab === 'config') {
       currentConfig = await resetConfig();
+    } else if (activeTab === 'aliases') {
+      currentAliases = await resetAliases();
     }
     // Note: No reset for panes - they need the YAML file
     render();

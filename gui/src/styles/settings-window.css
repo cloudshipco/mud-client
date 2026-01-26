@@ -382,3 +382,57 @@
   border-radius: 4px;
   font-size: 11px;
 }
+
+/* Aliases section */
+.settings-aliases-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.settings-alias-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-alias-name {
+  width: 120px;
+  flex-shrink: 0;
+}
+
+.settings-alias-expansion {
+  flex: 1;
+}
+
+.settings-alias-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings-btn-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.4);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.settings-btn-icon:hover {
+  background: rgba(255, 100, 100, 0.15);
+  color: #ff6b6b;
+  border-color: rgba(255, 100, 100, 0.3);
+}
