@@ -78,15 +78,16 @@ export interface AnsiState {
  * Parse SGR (Select Graphic Rendition) codes and update state
  */
 function parseSGR(codes: number[], state: AnsiState): AnsiState {
-  const newState = { ...state };
+  let newState = { ...state };
   let i = 0;
 
   while (i < codes.length) {
     const code = codes[i];
 
     if (code === 0) {
-      // Reset all
-      return {};
+      // Reset all attributes, but continue processing remaining codes
+      // (e.g., \x1b[0;31m means "reset, then set red")
+      newState = {};
     } else if (code === 1) {
       newState.bold = true;
     } else if (code === 2) {
