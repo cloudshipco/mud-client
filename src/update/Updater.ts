@@ -35,11 +35,11 @@ interface UpdateResult {
 
 // Map platform/arch to binary name
 const BINARY_MAP: Record<string, string> = {
-  "darwin-arm64": "mud-client-macos-arm64",
-  "darwin-x64": "mud-client-macos-x64",
-  "linux-x64": "mud-client-linux-x64",
-  "linux-arm64": "mud-client-linux-arm64",
-  "win32-x64": "mud-client-windows-x64.exe",
+  "darwin-arm64": "twilite-macos-arm64",
+  "darwin-x64": "twilite-macos-x64",
+  "linux-x64": "twilite-linux-x64",
+  "linux-arm64": "twilite-linux-arm64",
+  "win32-x64": "twilite-windows-x64.exe",
 };
 
 export class Updater {
