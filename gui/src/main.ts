@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 import { loadSettings } from "./services/settings-store";
 import { loadConfig, AppConfig } from "./services/config-store";
@@ -44,6 +46,25 @@ async function openSettings() {
   settingsWindow.once("tauri://destroyed", () => {
     settingsWindow = null;
   });
+}
+
+async function checkForUpdates(showMessage: (msg: string) => void) {
+  try {
+    const update = await check();
+    if (update) {
+      showMessage(`Update available: v${update.version}. Downloading...`);
+      await update.downloadAndInstall();
+      showMessage("Update installed. Restart to apply.");
+      // Give user time to see the message, then offer to restart
+      setTimeout(async () => {
+        if (confirm("Update installed. Restart now?")) {
+          await relaunch();
+        }
+      }, 1000);
+    }
+  } catch (error) {
+    console.error("Update check failed:", error);
+  }
 }
 
 async function main() {
@@ -434,6 +455,11 @@ async function main() {
 
   // Initial focus
   inputLine.focus();
+
+  // Check for updates in background (after a short delay to let app settle)
+  setTimeout(() => {
+    checkForUpdates((msg) => mainOutput.addClientMessage(msg));
+  }, 3000);
 }
 
 main().catch(console.error);

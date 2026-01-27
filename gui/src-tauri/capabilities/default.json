@@ -38,6 +38,8 @@
         { "path": "$HOME/.config/mud-client/**" }
       ]
     },
-    "window-state:default"
+    "window-state:default",
+    "updater:default",
+    "process:default"
   ]
 }

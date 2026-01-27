@@ -3,6 +3,14 @@
   "productName": "Twilite",
   "identifier": "com.cloudship.twilite",
   "version": "0.3.5",
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/cloudshipco/mud-client/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZBQzBDMjVCQjUyMTIyRjgKUldUNElpRzFXOExBK3NIODZ2K2VmTW9leTU1M0hwNnlLcVpJQUZ1VWkxK0MwamVzdXRQenVVR2UK"
+    }
+  },
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",

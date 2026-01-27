@@ -15,20 +15,14 @@ jobs:
             target: aarch64-apple-darwin
             bun_target: bun-darwin-arm64
             sidecar_suffix: aarch64-apple-darwin
-            artifact_suffix: macos-arm64
-            artifact_ext: dmg
           - platform: macos-latest
             target: x86_64-apple-darwin
             bun_target: bun-darwin-x64
             sidecar_suffix: x86_64-apple-darwin
-            artifact_suffix: macos-x64
-            artifact_ext: dmg
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             bun_target: bun-windows-x64
             sidecar_suffix: x86_64-pc-windows-msvc.exe
-            artifact_suffix: windows-x64
-            artifact_ext: exe
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -66,65 +60,38 @@ jobs:
           mkdir -p ~/private_keys
           echo "${{ secrets.APPLE_API_KEY_CONTENT }}" | base64 --decode > ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
 
-      - name: Build Tauri app (macOS)
-        if: matrix.platform == 'macos-latest'
-        working-directory: gui
-        run: npm run tauri build -- --target ${{ matrix.target }}
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS signing
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-      - name: Build Tauri app (Windows)
-        if: matrix.platform == 'windows-latest'
-        working-directory: gui
-        run: npm run tauri build -- --target ${{ matrix.target }}
-
-      - name: Get version
-        id: version
-        shell: bash
-        run: |
-          VERSION=$(grep '"version"' gui/src-tauri/tauri.conf.json | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Find and rename artifacts (macOS)
-        if: matrix.platform == 'macos-latest'
-        run: |
-          DMG=$(find gui/src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -1)
-          cp "$DMG" "Twilite_${{ steps.version.outputs.version }}_${{ matrix.artifact_suffix }}.dmg"
-
-      - name: Find and rename artifacts (Windows)
-        if: matrix.platform == 'windows-latest'
-        shell: bash
-        run: |
-          NSIS=$(find gui/src-tauri/target/${{ matrix.target }}/release/bundle/nsis -name "*-setup.exe" | head -1)
-          cp "$NSIS" "Twilite_${{ steps.version.outputs.version }}_${{ matrix.artifact_suffix }}-setup.exe"
-
-      - name: Upload to release (macOS)
-        if: matrix.platform == 'macos-latest' && github.event_name == 'release'
-        run: |
-          gh release upload ${{ github.event.release.tag_name }} \
-            "Twilite_${{ steps.version.outputs.version }}_${{ matrix.artifact_suffix }}.dmg" \
-            --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload to release (Windows)
-        if: matrix.platform == 'windows-latest' && github.event_name == 'release'
-        shell: bash
-        run: |
-          gh release upload ${{ github.event.release.tag_name }} \
-            "Twilite_${{ steps.version.outputs.version }}_${{ matrix.artifact_suffix }}-setup.exe" \
-            --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tauri updater signing
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          projectPath: gui
+          tauriScript: npm run tauri
+          args: --target ${{ matrix.target }}
+          # Only upload and create release on release event
+          tagName: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+          releaseName: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+          releaseBody: ${{ github.event_name == 'release' && github.event.release.body || '' }}
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
 
       - name: Upload artifact (for workflow_dispatch)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: Twilite_${{ matrix.artifact_suffix }}
-          path: Twilite_*
+          name: Twilite_${{ matrix.target }}
+          path: |
+            gui/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            gui/src-tauri/target/${{ matrix.target }}/release/bundle/**/*-setup.exe
+            gui/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz
+            gui/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz.sig
