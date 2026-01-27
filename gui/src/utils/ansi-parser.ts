@@ -60,7 +60,7 @@ function get256Color(index: number): string {
   return grayscale(index);
 }
 
-interface AnsiState {
+export interface AnsiState {
   fg?: string; // CSS color value or var(--ansi-X)
   bg?: string;
   fgIndex?: number; // Original ANSI color index (0-15) if applicable
@@ -239,12 +239,19 @@ function escapeHtml(text: string): string {
 /**
  * Convert ANSI text to HTML with inline styles using CSS custom properties.
  * Colors will update automatically when CSS variables change.
+ *
+ * @param text - The text containing ANSI escape codes
+ * @param initialState - Optional initial ANSI state (for maintaining state across lines)
+ * @returns Object with html output and final state (for chaining)
  */
-export function ansiToHtml(text: string): string {
+export function ansiToHtml(
+  text: string,
+  initialState?: AnsiState
+): { html: string; state: AnsiState } {
   // Regex to match ANSI escape sequences (SGR only - ending in 'm')
   const ansiRegex = /\x1b\[([0-9;]*)m/g;
 
-  let state: AnsiState = {};
+  let state: AnsiState = initialState ? { ...initialState } : {};
   let result = "";
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -282,7 +289,7 @@ export function ansiToHtml(text: string): string {
     }
   }
 
-  return result;
+  return { html: result, state };
 }
 
 /**

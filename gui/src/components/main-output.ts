@@ -2,7 +2,7 @@
  * MainOutput - Scrollable main output area
  */
 
-import { ansiToHtml } from "../utils/ansi-parser";
+import { ansiToHtml, AnsiState } from "../utils/ansi-parser";
 
 export interface MainOutputOptions {
   onScroll?: (scrollTop: number, scrollHeight: number) => void;
@@ -15,6 +15,7 @@ export class MainOutput {
   private autoScroll = true;
   private hasNewContent = false;
   private newIndicator: HTMLElement | null = null;
+  private ansiState: AnsiState = {}; // Track ANSI state across lines
 
   constructor(parent: HTMLElement, options: MainOutputOptions = {}) {
     // Create main output container
@@ -48,7 +49,9 @@ export class MainOutput {
   addLines(newLines: string[], ansiLines: string[]): void {
     for (let i = 0; i < ansiLines.length; i++) {
       this.lines.push(ansiLines[i]);
-      this.renderLine(ansiLines[i]);
+      const { html, state } = ansiToHtml(ansiLines[i], this.ansiState);
+      this.ansiState = state; // Carry state to next line
+      this.renderHtml(html);
     }
 
     // Limit stored lines
@@ -71,7 +74,8 @@ export class MainOutput {
   addClientMessage(message: string): void {
     const line = document.createElement("div");
     line.className = "main-line main-line-client";
-    line.innerHTML = `<span class="client-prefix">[Client]</span> ${ansiToHtml(message)}`;
+    const { html } = ansiToHtml(message); // Client messages don't carry state
+    line.innerHTML = `<span class="client-prefix">[Client]</span> ${html}`;
     this.content.appendChild(line);
 
     // Auto-scroll if enabled
@@ -83,10 +87,10 @@ export class MainOutput {
     }
   }
 
-  private renderLine(ansiLine: string): void {
+  private renderHtml(html: string): void {
     const line = document.createElement("div");
     line.className = "main-line";
-    line.innerHTML = ansiToHtml(ansiLine);
+    line.innerHTML = html;
     this.content.appendChild(line);
   }
 
@@ -153,6 +157,7 @@ export class MainOutput {
     this.content.innerHTML = "";
     this.hasNewContent = false;
     this.autoScroll = true;
+    this.ansiState = {}; // Reset ANSI state on clear
     this.updateNewIndicator();
   }
 

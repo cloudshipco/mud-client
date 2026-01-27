@@ -154,7 +154,8 @@ export class PaneRenderer {
   private renderMessage(msg: PaneMessage): void {
     const line = document.createElement("div");
     line.className = `pane-line pane-line-${msg.type}`;
-    line.innerHTML = ansiToHtml(msg.ansi);
+    const { html } = ansiToHtml(msg.ansi); // Each pane message is self-contained
+    line.innerHTML = html;
 
     // Add metadata as data attributes for styling/filtering
     if (msg.sender) {
