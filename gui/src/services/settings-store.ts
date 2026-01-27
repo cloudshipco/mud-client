@@ -9,14 +9,38 @@ const SETTINGS_KEY = 'terminal';
 const store = new LazyStore('settings.json');
 
 /**
+ * Valid font family values that can be selected in settings
+ */
+const VALID_FONT_FAMILIES = [
+  'MonaspaceNeon, monospace',
+  'MonaspaceArgon, monospace',
+  'MonaspaceXenon, monospace',
+  'MonaspaceRadon, monospace',
+  'MonaspaceKrypton, monospace',
+  '"JetBrains Mono", monospace',
+  '"Fira Code", monospace',
+  '"SF Mono", monospace',
+  'Menlo, monospace',
+  'Monaco, monospace',
+  '"Courier New", monospace',
+  'monospace',
+];
+
+/**
  * Deep merge settings with defaults, ensuring all required fields exist
  */
 function mergeSettings(
   defaults: TerminalSettings,
   saved: Partial<TerminalSettings>
 ): TerminalSettings {
+  // Validate fontFamily - use default if saved value is invalid or empty
+  let fontFamily = saved.fontFamily;
+  if (!fontFamily || !VALID_FONT_FAMILIES.includes(fontFamily)) {
+    fontFamily = defaults.fontFamily;
+  }
+
   return {
-    fontFamily: saved.fontFamily ?? defaults.fontFamily,
+    fontFamily,
     fontSize: saved.fontSize ?? defaults.fontSize,
     fontWeight: saved.fontWeight ?? defaults.fontWeight,
     fontWeightBold: saved.fontWeightBold ?? defaults.fontWeightBold,
