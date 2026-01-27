@@ -42,7 +42,7 @@ export interface TerminalSettings {
 }
 
 export const DEFAULT_SETTINGS: TerminalSettings = {
-  fontFamily: '"Monaspace Neon", monospace',
+  fontFamily: 'MonaspaceNeon, monospace',
   fontSize: 14,
   fontWeight: 'normal',
   fontWeightBold: 'bold',

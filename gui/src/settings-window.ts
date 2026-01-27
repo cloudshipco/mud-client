@@ -39,11 +39,11 @@ type TabId = 'terminal' | 'config' | 'panes' | 'aliases';
 
 const FONT_FAMILIES = [
   // Bundled fonts (Monaspace)
-  { value: '"Monaspace Neon", monospace', label: 'Monaspace Neon' },
-  { value: '"Monaspace Argon", monospace', label: 'Monaspace Argon' },
-  { value: '"Monaspace Xenon", monospace', label: 'Monaspace Xenon' },
-  { value: '"Monaspace Radon", monospace', label: 'Monaspace Radon' },
-  { value: '"Monaspace Krypton", monospace', label: 'Monaspace Krypton' },
+  { value: 'MonaspaceNeon, monospace', label: 'Monaspace Neon' },
+  { value: 'MonaspaceArgon, monospace', label: 'Monaspace Argon' },
+  { value: 'MonaspaceXenon, monospace', label: 'Monaspace Xenon' },
+  { value: 'MonaspaceRadon, monospace', label: 'Monaspace Radon' },
+  { value: 'MonaspaceKrypton, monospace', label: 'Monaspace Krypton' },
   // System fonts
   { value: '"JetBrains Mono", monospace', label: 'JetBrains Mono' },
   { value: '"Fira Code", monospace', label: 'Fira Code' },
@@ -289,7 +289,6 @@ function buildPanesSection(): string {
       </div>
     </div>
     <div class="settings-note">
-      Changes require restarting the client to take effect.
       Edit <code>~/.config/mud-client/panes.yaml</code> for advanced configuration.
     </div>
   `;
@@ -718,6 +717,7 @@ function bindButtons() {
     await Promise.all(saves);
     await emitSettingsChange();
     await emitConfigChange();
+    await emitPanesConfigChange();
     getCurrentWindow().close();
   });
 
@@ -747,6 +747,12 @@ async function emitSettingsChange() {
 
 async function emitConfigChange() {
   await emit('config-changed', currentConfig);
+}
+
+async function emitPanesConfigChange() {
+  if (currentPanesConfig) {
+    await emit('panes-config-changed', currentPanesConfig);
+  }
 }
 
 // Handle Escape key to close

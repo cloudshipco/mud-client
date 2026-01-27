@@ -5,7 +5,7 @@
  */
 
 @font-face {
-  font-family: 'Monaspace Neon';
+  font-family: MonaspaceNeon;
   src: url('../fonts/MonaspaceNeon.woff2') format('woff2');
   font-weight: 200 800;
   font-style: normal;
@@ -13,7 +13,7 @@
 }
 
 @font-face {
-  font-family: 'Monaspace Argon';
+  font-family: MonaspaceArgon;
   src: url('../fonts/MonaspaceArgon.woff2') format('woff2');
   font-weight: 200 800;
   font-style: normal;
@@ -21,7 +21,7 @@
 }
 
 @font-face {
-  font-family: 'Monaspace Xenon';
+  font-family: MonaspaceXenon;
   src: url('../fonts/MonaspaceXenon.woff2') format('woff2');
   font-weight: 200 800;
   font-style: normal;
@@ -29,7 +29,7 @@
 }
 
 @font-face {
-  font-family: 'Monaspace Radon';
+  font-family: MonaspaceRadon;
   src: url('../fonts/MonaspaceRadon.woff2') format('woff2');
   font-weight: 200 800;
   font-style: normal;
@@ -37,7 +37,7 @@
 }
 
 @font-face {
-  font-family: 'Monaspace Krypton';
+  font-family: MonaspaceKrypton;
   src: url('../fonts/MonaspaceKrypton.woff2') format('woff2');
   font-weight: 200 800;
   font-style: normal;
