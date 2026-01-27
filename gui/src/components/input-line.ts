@@ -1,5 +1,6 @@
 /**
  * InputLine - Fixed input area at the bottom
+ * Supports multi-line input with Option+Enter to add lines
  */
 
 export type InputMode = 'select' | 'clear';
@@ -7,22 +8,30 @@ export type InputMode = 'select' | 'clear';
 export interface InputLineOptions {
   onInput: (data: string) => void;
   inputMode?: InputMode;
+  onResize?: () => void;
 }
+
+const MAX_INPUT_LINES = 10;
 
 export class InputLine {
   private container: HTMLElement;
   private promptEl: HTMLElement;
-  private inputEl: HTMLInputElement;
+  private inputEl: HTMLTextAreaElement;
   private onInput: (data: string) => void;
   private passthroughMode = false; // When true, send all keys directly to PTY
   private awaitingCompletion = false; // True after sending tab, waiting for completion response
-  private backendHasText = false; // True when backend's buffer matches our input (after tab completion)
+  private awaitingHistory = false; // True after sending up/down arrow, waiting for history response
+  private backendHasText = false; // True when backend's buffer matches our input (after tab/history)
   private inputMode: InputMode = 'select';
   private preserveSelection = false; // When true, ignore backend's empty setText (for select mode)
+  private baseLineHeight = 0; // Computed line height for auto-grow
+  private onResize?: () => void;
+  private lastHeight = 0; // Track height to detect changes
 
   constructor(parent: HTMLElement, options: InputLineOptions) {
     this.onInput = options.onInput;
     this.inputMode = options.inputMode ?? 'select';
+    this.onResize = options.onResize;
 
     // Create input container
     this.container = document.createElement("div");
@@ -34,19 +43,18 @@ export class InputLine {
     this.promptEl.textContent = "> ";
     this.container.appendChild(this.promptEl);
 
-    // Create hidden input for keyboard capture
-    // We use a text input to get proper keyboard handling
-    this.inputEl = document.createElement("input");
-    this.inputEl.type = "text";
+    // Create textarea for multi-line input
+    this.inputEl = document.createElement("textarea");
     this.inputEl.className = "input-field";
     this.inputEl.spellcheck = false;
     this.inputEl.autocomplete = "off";
+    this.inputEl.rows = 1;
     this.container.appendChild(this.inputEl);
 
     // Handle key events
     this.inputEl.addEventListener("keydown", (e) => this.handleKeyDown(e));
 
-    // When user types, clear flags for special modes
+    // When user types, clear flags for special modes and auto-grow
     this.inputEl.addEventListener("input", () => {
       if (this.backendHasText) {
         // Clear backend's line since user is editing
@@ -55,9 +63,50 @@ export class InputLine {
       }
       // User is typing, allow backend updates again
       this.preserveSelection = false;
+      this.autoGrow();
     });
 
     parent.appendChild(this.container);
+
+    // Compute line height after element is in DOM and set initial height
+    requestAnimationFrame(() => {
+      const style = getComputedStyle(this.inputEl);
+      const fontSize = parseFloat(style.fontSize);
+      // lineHeight might be "normal", a number, or pixels
+      const lineHeightStr = style.lineHeight;
+      if (lineHeightStr === 'normal') {
+        this.baseLineHeight = fontSize * 1.2;
+      } else if (lineHeightStr.endsWith('px')) {
+        this.baseLineHeight = parseFloat(lineHeightStr);
+      } else {
+        // Unitless multiplier
+        this.baseLineHeight = fontSize * parseFloat(lineHeightStr);
+      }
+      // Set initial height to exactly 1 line
+      this.inputEl.style.height = `${this.baseLineHeight}px`;
+    });
+  }
+
+  /**
+   * Auto-grow textarea to fit content, up to MAX_INPUT_LINES
+   */
+  private autoGrow(): void {
+    const lineHeight = this.baseLineHeight || 20;
+
+    // Count actual newlines in the content
+    const newlineCount = (this.inputEl.value.match(/\n/g) || []).length;
+    const contentLines = newlineCount + 1; // +1 for the first line
+    const clampedLines = Math.min(Math.max(1, contentLines), MAX_INPUT_LINES);
+
+    // Set height based on line count
+    const newHeight = clampedLines * lineHeight;
+    this.inputEl.style.height = `${newHeight}px`;
+
+    // Notify if height changed (so main output can re-scroll)
+    if (newHeight !== this.lastHeight) {
+      this.lastHeight = newHeight;
+      this.onResize?.();
+    }
   }
 
   /**
@@ -111,12 +160,27 @@ export class InputLine {
 
     // Normal mode: handle input locally, send commands on Enter
     if (e.key === "Enter") {
+      // Option+Enter (Alt+Enter on Mac) inserts a newline without sending
+      if (e.altKey) {
+        // Insert newline at cursor position
+        const start = this.inputEl.selectionStart;
+        const end = this.inputEl.selectionEnd;
+        const value = this.inputEl.value;
+        this.inputEl.value = value.substring(0, start) + "\n" + value.substring(end);
+        this.inputEl.selectionStart = this.inputEl.selectionEnd = start + 1;
+        this.autoGrow();
+        e.preventDefault();
+        return;
+      }
+
       e.preventDefault();
       if (this.backendHasText) {
         // Backend already has the text (e.g., after tab completion), just send Enter
         this.onInput("\r");
       } else {
-        this.onInput(this.inputEl.value + "\r");
+        // Clear backend's buffer first, then send full text
+        // This ensures backend is in sync (e.g., after using history then clearing input)
+        this.onInput("\x15" + this.inputEl.value + "\r");
       }
       // Apply inputMode setting: select text or clear input
       // Ignore backend text updates until next user input
@@ -131,6 +195,8 @@ export class InputLine {
         this.inputEl.value = "";
       }
       this.backendHasText = false;
+      // Reset height after clearing/selecting
+      this.autoGrow();
     } else if (e.key === "Escape") {
       e.preventDefault();
       this.onInput("\x1b");
@@ -151,13 +217,25 @@ export class InputLine {
         this.onInput("\x7f");
       }
     } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      this.preserveSelection = false; // Allow history to replace text
-      this.onInput("\x1b[A");
+      // Only trigger history if cursor is on the first line
+      const textBeforeCursor = this.inputEl.value.substring(0, this.inputEl.selectionStart);
+      if (!textBeforeCursor.includes('\n')) {
+        e.preventDefault();
+        this.preserveSelection = false; // Allow history to replace text
+        this.awaitingHistory = true; // Backend will have the history text
+        this.onInput("\x1b[A");
+      }
+      // Otherwise let textarea handle cursor movement
     } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      this.preserveSelection = false; // Allow history to replace text
-      this.onInput("\x1b[B");
+      // Only trigger history if cursor is on the last line
+      const textAfterCursor = this.inputEl.value.substring(this.inputEl.selectionStart);
+      if (!textAfterCursor.includes('\n')) {
+        e.preventDefault();
+        this.preserveSelection = false; // Allow history to replace text
+        this.awaitingHistory = true; // Backend will have the history text
+        this.onInput("\x1b[B");
+      }
+      // Otherwise let textarea handle cursor movement
     } else if (e.key === "ArrowRight") {
       // Let default cursor movement work in input
     } else if (e.key === "ArrowLeft") {
@@ -223,10 +301,12 @@ export class InputLine {
       return;
     }
     this.inputEl.value = text;
-    // Only mark backendHasText if this is a tab completion response
-    if (this.awaitingCompletion) {
+    this.autoGrow();
+    // Mark backendHasText if this is a tab completion or history response
+    if (this.awaitingCompletion || this.awaitingHistory) {
       this.backendHasText = true;
       this.awaitingCompletion = false;
+      this.awaitingHistory = false;
     }
   }
 
@@ -248,6 +328,7 @@ export class InputLine {
 
   clear(): void {
     this.inputEl.value = "";
+    this.autoGrow();
   }
 
   setInputMode(mode: InputMode): void {

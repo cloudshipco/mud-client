@@ -109,6 +109,10 @@ async function main() {
       }
       invoke("write_to_pty", { data });
     },
+    onResize: () => {
+      // When input area resizes, maintain scroll position
+      mainOutput.handleLayoutChange();
+    },
   });
 
   // Create menu and prompt renderers (overlays)

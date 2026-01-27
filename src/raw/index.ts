@@ -1231,8 +1231,8 @@ class MudClient {
       return;
     }
 
-    // Enter
-    if (key === "\r" || key === "\n") {
+    // Enter (only \r triggers command - \n is allowed in multi-line input)
+    if (key === "\r") {
       // In GUI mode, if disconnected and input is empty, show connection menu
       if (this.guiMode && !this.connected && !this.input.trim()) {
         this.showConnectionMenu();
@@ -1523,6 +1523,20 @@ class MudClient {
           return;
         }
       }
+    }
+
+    // Newline (for multi-line input from GUI)
+    if (key === "\n") {
+      if (this.inputSelected) {
+        this.input = key;
+        this.cursorPos = 1;
+        this.inputSelected = false;
+      } else {
+        this.input = this.input.slice(0, this.cursorPos) + key + this.input.slice(this.cursorPos);
+        this.cursorPos++;
+      }
+      this.redrawInput();
+      return;
     }
 
     // Regular printable character
@@ -2031,6 +2045,20 @@ class MudClient {
 
   private handleCommand(cmd: string, isChained = false): void {
     const trimmed = cmd.trim();
+
+    // Handle multi-line input (from GUI paste or Option+Enter)
+    // Don't split client commands (starting with /) - they may span multiple lines
+    if (!isChained && !trimmed.startsWith("/") && trimmed.includes("\n")) {
+      // Add full multi-line command to history as one entry
+      this.history.add(trimmed);
+      this.history.reset();
+      // Split and process each line
+      const lines = trimmed.split("\n").map((l) => l.trim()).filter(Boolean);
+      for (const line of lines) {
+        this.handleCommand(line, true);
+      }
+      return;
+    }
 
     // Handle command chaining (e.g., "e;;e;;n" with separator ";;")
     // Don't split client commands (starting with /) - they may contain the separator in arguments

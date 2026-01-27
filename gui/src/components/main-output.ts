@@ -101,6 +101,16 @@ export class MainOutput {
     this.updateNewIndicator();
   }
 
+  /**
+   * Called when layout changes (e.g., input area resizes).
+   * If auto-scroll was enabled, scroll to bottom to maintain position.
+   */
+  handleLayoutChange(): void {
+    if (this.autoScroll) {
+      this.scrollToBottom();
+    }
+  }
+
   scrollUp(lines: number = 1): void {
     const lineHeight = 20;
     this.content.scrollTop -= lines * lineHeight;

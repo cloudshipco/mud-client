@@ -162,7 +162,7 @@
 .input-line {
   flex-shrink: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   padding: 6px 8px;
   background: rgba(255, 255, 255, 0.06);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -172,6 +172,8 @@
   color: #888;
   margin-right: 4px;
   white-space: pre;
+  line-height: var(--line-height, 1.4);
+  padding-top: 1px;
 }
 
 .input-field {
@@ -182,7 +184,11 @@
   color: #d4d4d4;
   font-family: inherit;
   font-size: inherit;
+  line-height: inherit;
   caret-color: #d4d4d4;
+  resize: none;
+  overflow-y: auto;
+  min-height: 1.4em;
 }
 
 .input-field::selection {
