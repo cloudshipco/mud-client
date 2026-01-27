@@ -4,6 +4,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 import { loadSettings } from "./services/settings-store";
 import { loadConfig, AppConfig } from "./services/config-store";
+import { PanesConfig } from "./services/panes-config-store";
 import { TerminalSettings } from "./types/settings";
 import { parseGuiEvent, GuiEvent } from "./types/gui-events";
 import { PaneRenderer } from "./components/pane-renderer";
@@ -322,6 +323,46 @@ async function main() {
   listen<AppConfig>("config-changed", (event) => {
     const newConfig = event.payload;
     inputLine.setInputMode(newConfig.inputMode);
+  });
+
+  // Listen for panes config changes (from settings window)
+  listen<PanesConfig>("panes-config-changed", (event) => {
+    const newPanesConfig = event.payload;
+
+    // Track which panes should be enabled
+    const enabledPaneIds = new Set<string>();
+    for (const paneConfig of newPanesConfig.panes) {
+      if (paneConfig.enabled !== false) {
+        enabledPaneIds.add(paneConfig.id);
+      }
+    }
+
+    // Remove panes that are now disabled
+    for (const [paneId, pane] of panes) {
+      if (!enabledPaneIds.has(paneId)) {
+        pane.destroy();
+        panes.delete(paneId);
+      }
+    }
+
+    // Add or update enabled panes
+    for (const paneConfig of newPanesConfig.panes) {
+      if (paneConfig.enabled === false) continue;
+
+      const existingPane = panes.get(paneConfig.id);
+      if (existingPane) {
+        // Update height if changed
+        existingPane.setHeightInLines(paneConfig.height);
+      } else {
+        // Create new pane
+        const pane = new PaneRenderer(panesContainer, {
+          id: paneConfig.id,
+          title: paneConfig.id.charAt(0).toUpperCase() + paneConfig.id.slice(1),
+          height: paneConfig.height,
+        });
+        panes.set(paneConfig.id, pane);
+      }
+    }
   });
 
   // Apply settings to the app using CSS custom properties
