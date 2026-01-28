@@ -13,7 +13,7 @@ describe("PaneManager", () => {
           height: 5,
           enabled: true,
           passthrough: false,
-          filter: { types: ["tell"] },
+          filter: { patterns: ["tell"] },
         },
       ];
       const manager = new PaneManager(configs);
@@ -35,7 +35,7 @@ describe("PaneManager", () => {
           height: 5,
           enabled: true,
           passthrough: true,
-          filter: { types: ["tell"] },
+          filter: { patterns: ["tell"] },
         },
       ];
       const manager = new PaneManager(configs);
@@ -57,7 +57,7 @@ describe("PaneManager", () => {
           height: 5,
           enabled: true,
           passthrough: false,
-          filter: { types: ["tell"] },
+          filter: { patterns: ["tell"] },
         },
       ];
       const manager = new PaneManager(configs);
@@ -79,7 +79,7 @@ describe("PaneManager", () => {
           height: 5,
           enabled: false,
           passthrough: false,
-          filter: { types: ["tell"] },
+          filter: { patterns: ["tell"] },
         },
       ];
       const manager = new PaneManager(configs);
@@ -101,7 +101,7 @@ describe("PaneManager", () => {
           height: 5,
           enabled: false,
           passthrough: false,
-          filter: { types: ["tell"] },
+          filter: { patterns: ["tell"] },
         },
       ];
       const manager = new PaneManager(configs);
@@ -128,14 +128,13 @@ describe("PaneManager", () => {
           height: 5,
           enabled: true,
           passthrough: true,
-          filter: { types: ["channel"] },
+          filter: { patterns: ["channel"] },
         },
       ];
       const manager = new PaneManager(configs);
 
       const classified: ClassifiedMessage = {
         type: "channel",
-        channel: "guild",
         raw: "[guild] Someone : Hello everyone",
       };
 
@@ -147,6 +146,28 @@ describe("PaneManager", () => {
       const pane = manager.getPane("comms");
       expect(pane).toBeDefined();
       // The pane's messages array is private, but we verified the route logic works
+    });
+
+    it("matches with excludePatterns filter", () => {
+      const configs: PaneConfig[] = [
+        {
+          id: "comms",
+          position: "top",
+          height: 5,
+          enabled: true,
+          passthrough: false,
+          filter: { excludePatterns: ["other"] },
+        },
+      ];
+      const manager = new PaneManager(configs);
+
+      // Tell should be accepted (not in excludePatterns)
+      const tell: ClassifiedMessage = { type: "tell", raw: "Someone tells you : Hi" };
+      expect(manager.route("Someone tells you : Hi", tell)).toBe(true);
+
+      // Other should be rejected (in excludePatterns)
+      const other: ClassifiedMessage = { type: "other", raw: "Combat text" };
+      expect(manager.route("Combat text", other)).toBe(false);
     });
   });
 });

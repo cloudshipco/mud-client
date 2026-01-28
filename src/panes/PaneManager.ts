@@ -107,4 +107,18 @@ export class PaneManager {
   toJSON(): Array<ReturnType<Pane["toJSON"]>> {
     return this.panes.map((p) => p.toJSON());
   }
+
+  /**
+   * Update pane configs from a new list
+   * Updates filters and enabled state for existing panes
+   */
+  updateConfigs(configs: PaneConfig[]): void {
+    for (const config of configs) {
+      const pane = this.panes.find((p) => p.id === config.id);
+      if (pane) {
+        pane.updateFilter(config.filter);
+        pane.setEnabled(config.enabled ?? true);
+      }
+    }
+  }
 }

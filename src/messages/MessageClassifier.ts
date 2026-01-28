@@ -1,113 +1,89 @@
 /**
  * MessageClassifier - Identifies communication messages from MUD output
  *
- * Classifies lines as tells, channel messages, or other output.
- * Patterns are configurable via panes.yaml.
+ * Classifies lines by matching against named pattern groups.
+ * Patterns are configurable via patterns.yaml.
  * Supports continuation lines (e.g., indented lines that belong to previous message).
  */
 
-import type { ClassifiersConfig } from "../panes/types";
-
-export type MessageType = "tell" | "channel" | "say" | "other";
+import type { PatternsConfig } from "../patterns/PatternsConfigStore";
 
 export interface ClassifiedMessage {
-  type: MessageType;
+  type: string; // Group name or "other"
   raw: string;
-  channel?: string;
-  sender?: string;
-  isOutgoing?: boolean;
   isContinuation?: boolean;
 }
 
-interface CompiledTellPattern {
-  pattern: RegExp;
-  senderGroup: number;
-  isOutgoing: boolean;
-}
-
-interface CompiledChannelPattern {
-  pattern: RegExp;
-  channelGroup: number;
-  contentGroup: number;
-}
-
-interface CompiledContentPattern {
-  pattern: RegExp;
-  senderGroup: number;
+interface CompiledGroup {
+  name: string;
+  patterns: RegExp[];
 }
 
 export class MessageClassifier {
-  private tellPatterns: CompiledTellPattern[] = [];
-  private sayPatterns: CompiledTellPattern[] = [];
-  private channelPatterns: CompiledChannelPattern[] = [];
-  private channelContentPatterns: CompiledContentPattern[] = [];
+  private groups: CompiledGroup[] = [];
   private continuationPattern: RegExp | null = null;
+  private configHash: string = "";
 
   // Track last classification for continuation support
   private lastClassification: ClassifiedMessage | null = null;
 
-  constructor(config?: ClassifiersConfig) {
+  constructor(config?: PatternsConfig) {
     if (config) {
       this.loadFromConfig(config);
-    } else {
-      this.loadDefaults();
     }
   }
 
-  loadFromConfig(config: ClassifiersConfig): void {
-    this.tellPatterns = config.tell.map((p) => ({
-      pattern: new RegExp(p.pattern),
-      senderGroup: p.sender,
-      isOutgoing: p.outgoing,
-    }));
+  /**
+   * Compute a hash of the config for change detection
+   */
+  private computeConfigHash(config: PatternsConfig): string {
+    return JSON.stringify({
+      groups: config.groups,
+      continuation: config.continuation,
+    });
+  }
 
-    this.sayPatterns = config.say.map((p) => ({
-      pattern: new RegExp(p.pattern),
-      senderGroup: p.sender,
-      isOutgoing: p.outgoing,
-    }));
+  /**
+   * Update config if it has changed
+   * Returns true if config was reloaded
+   */
+  updateIfChanged(config: PatternsConfig): boolean {
+    const newHash = this.computeConfigHash(config);
+    if (newHash !== this.configHash) {
+      this.loadFromConfig(config);
+      return true;
+    }
+    return false;
+  }
 
-    this.channelPatterns = config.channel.map((p) => ({
-      pattern: new RegExp(p.pattern),
-      channelGroup: p.channel,
-      contentGroup: p.content,
-    }));
+  loadFromConfig(config: PatternsConfig): void {
+    this.groups = [];
+    this.configHash = this.computeConfigHash(config);
 
-    this.channelContentPatterns = config.channelContent.map((p) => ({
-      pattern: new RegExp(p.pattern),
-      senderGroup: p.sender,
-    }));
+    for (const [name, patterns] of Object.entries(config.groups)) {
+      const compiled: RegExp[] = [];
+      for (const pattern of patterns) {
+        try {
+          compiled.push(new RegExp(pattern));
+        } catch (err) {
+          console.error(`Invalid regex in group "${name}": ${pattern}`, err);
+        }
+      }
+      if (compiled.length > 0) {
+        this.groups.push({ name, patterns: compiled });
+      }
+    }
 
     if (config.continuation) {
-      this.continuationPattern = new RegExp(config.continuation);
+      try {
+        this.continuationPattern = new RegExp(config.continuation);
+      } catch (err) {
+        console.error(`Invalid continuation pattern: ${config.continuation}`, err);
+        this.continuationPattern = null;
+      }
+    } else {
+      this.continuationPattern = null;
     }
-  }
-
-  private loadDefaults(): void {
-    this.tellPatterns = [
-      { pattern: /^(\w+) tells you : .+$/, isOutgoing: false, senderGroup: 1 },
-      { pattern: /^You tell (\w+): .+$/, isOutgoing: true, senderGroup: 1 },
-      { pattern: /^(\w+) replies: .+$/, isOutgoing: false, senderGroup: 1 },
-      { pattern: /^You reply to (\w+): .+$/, isOutgoing: true, senderGroup: 1 },
-    ];
-
-    this.sayPatterns = [
-      { pattern: /^(\w+) says ?: .+$/, isOutgoing: false, senderGroup: 1 },
-      { pattern: /^You say ?: .+$/, isOutgoing: true, senderGroup: 0 },
-    ];
-
-    this.channelPatterns = [
-      { pattern: /^\[(\*?\w+\*?)\] (.+)$/, channelGroup: 1, contentGroup: 2 },
-    ];
-
-    this.channelContentPatterns = [
-      { pattern: /^(\w+) : .+$/, senderGroup: 1 },
-      { pattern: /^(?:[\w\s]+\s)?(\w+) has (?:logged in|logged out|gone idle|returned)\.$/, senderGroup: 1 },
-      { pattern: /^(\w+) \w+/, senderGroup: 1 },
-    ];
-
-    // Default: lines starting with whitespace are continuations
-    this.continuationPattern = /^\s+\S/;
   }
 
   classify(line: string): ClassifiedMessage {
@@ -121,70 +97,23 @@ export class MessageClassifier {
       const result: ClassifiedMessage = {
         type: this.lastClassification.type,
         raw: line,
-        channel: this.lastClassification.channel,
-        sender: this.lastClassification.sender,
-        isOutgoing: this.lastClassification.isOutgoing,
         isContinuation: true,
       };
       // Don't update lastClassification - keep tracking the original message
       return result;
     }
 
-    // Check for tells
-    for (const p of this.tellPatterns) {
-      const match = line.match(p.pattern);
-      if (match) {
-        const result: ClassifiedMessage = {
-          type: "tell",
-          raw: line,
-          sender: p.senderGroup > 0 ? match[p.senderGroup] : undefined,
-          isOutgoing: p.isOutgoing,
-        };
-        this.lastClassification = result;
-        return result;
-      }
-    }
-
-    // Check for says
-    for (const p of this.sayPatterns) {
-      const match = line.match(p.pattern);
-      if (match) {
-        const result: ClassifiedMessage = {
-          type: "say",
-          raw: line,
-          sender: p.senderGroup > 0 ? match[p.senderGroup] : undefined,
-          isOutgoing: p.isOutgoing,
-        };
-        this.lastClassification = result;
-        return result;
-      }
-    }
-
-    // Check for channel messages
-    for (const cp of this.channelPatterns) {
-      const match = line.match(cp.pattern);
-      if (match) {
-        const channel = match[cp.channelGroup];
-        const content = match[cp.contentGroup];
-
-        // Try to extract sender from content
-        let sender: string | undefined;
-        for (const contentP of this.channelContentPatterns) {
-          const contentMatch = content.match(contentP.pattern);
-          if (contentMatch) {
-            sender = contentMatch[contentP.senderGroup];
-            break;
-          }
+    // Check each group's patterns
+    for (const group of this.groups) {
+      for (const pattern of group.patterns) {
+        if (pattern.test(line)) {
+          const result: ClassifiedMessage = {
+            type: group.name,
+            raw: line,
+          };
+          this.lastClassification = result;
+          return result;
         }
-
-        const result: ClassifiedMessage = {
-          type: "channel",
-          raw: line,
-          channel,
-          sender,
-        };
-        this.lastClassification = result;
-        return result;
       }
     }
 
@@ -204,5 +133,12 @@ export class MessageClassifier {
   classifyLines(text: string): ClassifiedMessage[] {
     const lines = text.split("\n");
     return lines.map((line) => this.classify(line));
+  }
+
+  /**
+   * Get list of all configured group names
+   */
+  getGroupNames(): string[] {
+    return this.groups.map((g) => g.name);
   }
 }

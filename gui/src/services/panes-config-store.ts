@@ -7,9 +7,8 @@ import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs';
 import { join, homeDir } from '@tauri-apps/api/path';
 
 export interface PaneFilter {
-  types?: string[];
-  channels?: string[];
-  excludeChannels?: string[];
+  patterns?: string[];
+  excludePatterns?: string[];
   pattern?: string;
 }
 
@@ -24,7 +23,6 @@ export interface PaneConfig {
 }
 
 export interface PanesConfig {
-  classifiers: unknown; // Keep as-is, don't modify
   panes: PaneConfig[];
 }
 
@@ -39,14 +37,12 @@ async function getConfigPath(): Promise<string> {
  */
 function parseYaml(content: string): PanesConfig {
   const lines = content.split('\n');
-  const result: PanesConfig = { classifiers: {}, panes: [] };
+  const result: PanesConfig = { panes: [] };
 
   let currentSection: string | null = null;
   let currentPane: Partial<PaneConfig> | null = null;
   let currentFilter: PaneFilter | null = null;
-  let inClassifiers = false;
-  let classifiersYaml: string[] = [];
-  let currentArrayKey: 'types' | 'channels' | 'excludeChannels' | null = null;
+  let currentArrayKey: 'patterns' | 'excludePatterns' | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -54,25 +50,19 @@ function parseYaml(content: string): PanesConfig {
 
     if (trimmed === '' || trimmed.startsWith('#')) continue;
 
-    // Top-level sections
+    // Skip classifiers section (now in patterns.yaml)
     if (line.startsWith('classifiers:')) {
-      inClassifiers = true;
-      classifiersYaml = ['classifiers:'];
       currentSection = 'classifiers';
       continue;
     }
 
     if (line.startsWith('panes:')) {
-      inClassifiers = false;
       currentSection = 'panes';
       continue;
     }
 
-    // Capture classifiers section as-is
-    if (inClassifiers && currentSection === 'classifiers') {
-      if (!line.startsWith('panes:')) {
-        classifiersYaml.push(line);
-      }
+    // Skip classifiers content
+    if (currentSection === 'classifiers' && !line.startsWith('panes:')) {
       continue;
     }
 
@@ -125,30 +115,31 @@ function parseYaml(content: string): PanesConfig {
         currentPane.passthrough = line.includes('true');
       } else if (line.match(/^\s{4}filter:/)) {
         currentFilter = {};
-      } else if (line.match(/^\s{6}types:/)) {
-        // Check for inline array or start multi-line
-        const inlineMatch = line.match(/types:\s*\[([^\]]*)\]/);
+      } else if (line.match(/^\s{6}(patterns|types):/)) {
+        // Support both 'patterns' (new) and 'types' (old) for backward compat
+        const inlineMatch = line.match(/(patterns|types):\s*\[([^\]]*)\]/);
         if (inlineMatch) {
-          currentFilter!.types = inlineMatch[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
+          currentFilter!.patterns = inlineMatch[2].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
         } else {
-          currentArrayKey = 'types';
-          currentFilter!.types = [];
+          currentArrayKey = 'patterns';
+          currentFilter!.patterns = [];
+        }
+      } else if (line.match(/^\s{6}(excludePatterns|excludeChannels):/)) {
+        // Support both 'excludePatterns' (new) and 'excludeChannels' (old)
+        const inlineMatch = line.match(/(excludePatterns|excludeChannels):\s*\[([^\]]*)\]/);
+        if (inlineMatch) {
+          currentFilter!.excludePatterns = inlineMatch[2].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
+        } else {
+          currentArrayKey = 'excludePatterns';
+          currentFilter!.excludePatterns = [];
         }
       } else if (line.match(/^\s{6}channels:/)) {
+        // Migrate old 'channels' to 'patterns' (channel names were pattern group names)
         const inlineMatch = line.match(/channels:\s*\[([^\]]*)\]/);
         if (inlineMatch) {
-          currentFilter!.channels = inlineMatch[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
-        } else {
-          currentArrayKey = 'channels';
-          currentFilter!.channels = [];
-        }
-      } else if (line.match(/^\s{6}excludeChannels:/)) {
-        const inlineMatch = line.match(/excludeChannels:\s*\[([^\]]*)\]/);
-        if (inlineMatch) {
-          currentFilter!.excludeChannels = inlineMatch[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
-        } else {
-          currentArrayKey = 'excludeChannels';
-          currentFilter!.excludeChannels = [];
+          const channels = inlineMatch[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
+          if (!currentFilter!.patterns) currentFilter!.patterns = [];
+          currentFilter!.patterns.push(...channels);
         }
       } else if (line.match(/^\s{6}pattern:/)) {
         const match = line.match(/pattern:\s*["']?(.+?)["']?\s*$/);
@@ -163,9 +154,6 @@ function parseYaml(content: string): PanesConfig {
     result.panes.push(currentPane as PaneConfig);
   }
 
-  // Store raw classifiers YAML for preservation
-  (result as any)._classifiersYaml = classifiersYaml.join('\n');
-
   return result;
 }
 
@@ -175,19 +163,6 @@ function parseYaml(content: string): PanesConfig {
 function stringifyYaml(config: PanesConfig): string {
   const lines: string[] = [];
 
-  // Preserve original classifiers section
-  const classifiersYaml = (config as any)._classifiersYaml;
-  if (classifiersYaml) {
-    lines.push(classifiersYaml);
-  } else {
-    lines.push('classifiers:');
-    lines.push('  tell: []');
-    lines.push('  say: []');
-    lines.push('  channel: []');
-    lines.push('  channelContent: []');
-  }
-
-  lines.push('');
   lines.push('panes:');
 
   for (const pane of config.panes) {
@@ -204,14 +179,11 @@ function stringifyYaml(config: PanesConfig): string {
       lines.push(`    passthrough: ${pane.passthrough}`);
     }
     lines.push('    filter:');
-    if (pane.filter.types && pane.filter.types.length > 0) {
-      lines.push(`      types: [${pane.filter.types.join(', ')}]`);
+    if (pane.filter.patterns && pane.filter.patterns.length > 0) {
+      lines.push(`      patterns: [${pane.filter.patterns.join(', ')}]`);
     }
-    if (pane.filter.channels && pane.filter.channels.length > 0) {
-      lines.push(`      channels: [${pane.filter.channels.join(', ')}]`);
-    }
-    if (pane.filter.excludeChannels && pane.filter.excludeChannels.length > 0) {
-      lines.push(`      excludeChannels: [${pane.filter.excludeChannels.join(', ')}]`);
+    if (pane.filter.excludePatterns && pane.filter.excludePatterns.length > 0) {
+      lines.push(`      excludePatterns: [${pane.filter.excludePatterns.join(', ')}]`);
     }
     if (pane.filter.pattern) {
       lines.push(`      pattern: '${pane.filter.pattern}'`);
@@ -266,6 +238,24 @@ export function updatePane(
     ...config,
     panes: config.panes.map(pane =>
       pane.id === paneId ? { ...pane, ...updates } : pane
+    ),
+  };
+}
+
+/**
+ * Update a pane's pattern filter
+ */
+export function updatePanePatterns(
+  config: PanesConfig,
+  paneId: string,
+  patterns: string[]
+): PanesConfig {
+  return {
+    ...config,
+    panes: config.panes.map(pane =>
+      pane.id === paneId
+        ? { ...pane, filter: { ...pane.filter, patterns: patterns.length > 0 ? patterns : undefined } }
+        : pane
     ),
   };
 }

@@ -441,3 +441,258 @@
   color: #ff6b6b;
   border-color: rgba(255, 100, 100, 0.3);
 }
+
+/* Patterns section */
+.settings-patterns-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-pattern-row {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.settings-pattern-single {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-pattern-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.settings-pattern-input {
+  flex: 1;
+  font-family: 'MonaspaceNeon', 'SF Mono', monospace;
+  font-size: 12px;
+}
+
+.settings-pattern-input.settings-pattern-invalid {
+  border-color: rgba(255, 100, 100, 0.5);
+  background: rgba(255, 100, 100, 0.08);
+}
+
+.settings-pattern-validation {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.settings-pattern-validation.valid {
+  color: #4ade80;
+}
+
+.settings-pattern-validation.invalid {
+  color: #ff6b6b;
+}
+
+.settings-pattern-options {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.settings-pattern-options .settings-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* No longer used - was for old pattern group number inputs */
+
+.settings-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+}
+
+.settings-pattern-add {
+  margin-top: 4px;
+}
+
+/* Help details (collapsible) */
+.settings-help-details {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.settings-help-details summary {
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.6);
+  padding: 6px 0;
+  user-select: none;
+}
+
+.settings-help-details summary:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.settings-help-content {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.settings-help-content p {
+  margin: 0 0 8px;
+}
+
+.settings-help-content p:last-child {
+  margin-bottom: 0;
+}
+
+.settings-help-content ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.settings-help-content li {
+  margin: 4px 0;
+}
+
+.settings-help-content code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'MonaspaceNeon', 'SF Mono', monospace;
+  font-size: 11px;
+}
+
+/* Pattern group card */
+.settings-pattern-group-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.settings-pattern-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.settings-group-name-input {
+  flex: 1;
+  font-weight: 600;
+  font-size: 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.settings-group-name-input:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.settings-group-name-input:focus {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(74, 158, 255, 0.5);
+  outline: none;
+}
+
+/* Add group section */
+.settings-add-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-add-group .settings-input {
+  flex: 1;
+  max-width: 200px;
+}
+
+/* Pattern rows within group cards should be simpler */
+.settings-pattern-group-card .settings-pattern-row {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+.settings-pattern-group-card .settings-pattern-row:last-child {
+  margin-bottom: 0;
+}
+
+.settings-pattern-group-card .settings-pattern-main {
+  margin-bottom: 0;
+}
+
+.settings-pattern-group-card .settings-patterns-list {
+  margin-bottom: 12px;
+}
+
+/* Pane pattern selection */
+.settings-pane-patterns {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings-pane-patterns > .settings-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.settings-pane-pattern-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Chip/tag style for pattern group selection */
+.settings-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.settings-chip input[type="checkbox"] {
+  display: none;
+}
+
+.settings-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.settings-chip.active {
+  background: rgba(74, 158, 255, 0.2);
+  border-color: rgba(74, 158, 255, 0.4);
+  color: #4a9eff;
+}

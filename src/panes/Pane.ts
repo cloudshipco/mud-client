@@ -18,7 +18,7 @@ export interface PaneMessage {
 
 export class Pane {
   readonly id: string;
-  readonly filter: PaneFilter;
+  private _filter: PaneFilter;
   readonly passthrough: boolean;
   private _enabled: boolean;
   private _focused: boolean = false;
@@ -34,10 +34,18 @@ export class Pane {
     this.id = config.id;
     this.height = config.height;
     this.originalHeight = config.height;
-    this.filter = config.filter;
+    this._filter = config.filter;
     this.maxMessages = config.maxMessages || 100;
     this.passthrough = config.passthrough ?? false;
     this._enabled = config.enabled ?? true;
+  }
+
+  get filter(): PaneFilter {
+    return this._filter;
+  }
+
+  updateFilter(filter: PaneFilter): void {
+    this._filter = filter;
   }
 
   get enabled(): boolean {
@@ -59,41 +67,29 @@ export class Pane {
   accepts(classified: ClassifiedMessage): boolean {
     const { filter } = this;
 
-    // Check type filter
-    if (filter.types && filter.types.length > 0) {
-      if (!filter.types.includes(classified.type)) {
+    // Check pattern group filter (include list)
+    if (filter.patterns && filter.patterns.length > 0) {
+      if (!filter.patterns.includes(classified.type)) {
         return false;
       }
     }
 
-    // Check channel whitelist
-    if (filter.channels && filter.channels.length > 0) {
-      if (classified.type === "channel" && classified.channel) {
-        const normalizedChannel = classified.channel.replace(/\*/g, "").toLowerCase();
-        if (!filter.channels.some((c) => c.toLowerCase() === normalizedChannel)) {
-          return false;
-        }
-      } else if (classified.type === "channel") {
-        // Channel type but no channel name - doesn't match whitelist
+    // Check pattern group exclude filter
+    if (filter.excludePatterns && filter.excludePatterns.length > 0) {
+      if (filter.excludePatterns.includes(classified.type)) {
         return false;
       }
     }
 
-    // Check channel blacklist
-    if (filter.excludeChannels && filter.excludeChannels.length > 0) {
-      if (classified.type === "channel" && classified.channel) {
-        const normalizedChannel = classified.channel.replace(/\*/g, "").toLowerCase();
-        if (filter.excludeChannels.some((c) => c.toLowerCase() === normalizedChannel)) {
-          return false;
-        }
-      }
-    }
-
-    // Check additional pattern filter
+    // Check additional pattern filter (custom regex)
     if (filter.pattern) {
-      const regex = new RegExp(filter.pattern);
-      if (!regex.test(classified.raw)) {
-        return false;
+      try {
+        const regex = new RegExp(filter.pattern);
+        if (!regex.test(classified.raw)) {
+          return false;
+        }
+      } catch {
+        // Invalid regex, skip this filter
       }
     }
 
@@ -267,8 +263,6 @@ export class Pane {
       text: string;
       ansi: string;
       type: string;
-      sender?: string;
-      channel?: string;
       timestamp: number;
     }>;
   } {
@@ -281,8 +275,6 @@ export class Pane {
         text: msg.classified.raw,
         ansi: msg.text,
         type: msg.classified.type,
-        sender: msg.classified.sender,
-        channel: msg.classified.channel,
         timestamp: msg.timestamp.getTime(),
       })),
     };

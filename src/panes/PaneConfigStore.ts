@@ -2,19 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { parse, stringify } from "yaml";
-import type {
-  PanesConfig,
-  ClassifiersConfig,
-  PaneConfig,
-} from "./types";
-
-// Empty defaults - user must create panes.yaml to enable panes
-const DEFAULT_CLASSIFIERS: ClassifiersConfig = {
-  tell: [],
-  say: [],
-  channel: [],
-  channelContent: [],
-};
+import type { PanesConfig, PaneConfig } from "./types";
 
 const DEFAULT_PANES: PaneConfig[] = [];
 
@@ -38,7 +26,20 @@ export class PaneConfigStore {
 
     try {
       const content = readFileSync(this.configPath, "utf-8");
-      const parsed = parse(content) as Partial<PanesConfig>;
+      const parsed = parse(content) as Partial<PanesConfig> & {
+        // Handle old format with types instead of patterns
+        panes?: Array<
+          Partial<PaneConfig> & {
+            filter?: {
+              types?: string[];
+              patterns?: string[];
+              channels?: string[];
+              excludeChannels?: string[];
+              pattern?: string;
+            };
+          }
+        >;
+      };
       return this.mergeWithDefaults(parsed);
     } catch (err) {
       console.error("Error loading panes.yaml, using defaults:", err);
@@ -48,43 +49,70 @@ export class PaneConfigStore {
 
   private getDefaults(): PanesConfig {
     return {
-      classifiers: DEFAULT_CLASSIFIERS,
       panes: DEFAULT_PANES,
     };
   }
 
-  private mergeWithDefaults(parsed: Partial<PanesConfig>): PanesConfig {
-    return {
-      classifiers: parsed.classifiers || DEFAULT_CLASSIFIERS,
-      panes: parsed.panes || DEFAULT_PANES,
-    };
-  }
-
-  validateConfig(): void {
-    for (const type of ["tell", "say"] as const) {
-      for (const p of this.config.classifiers[type]) {
-        new RegExp(p.pattern);
+  private mergeWithDefaults(
+    parsed: Partial<PanesConfig> & {
+      panes?: Array<
+        Partial<PaneConfig> & {
+          filter?: {
+            types?: string[];
+            patterns?: string[];
+            channels?: string[];
+            excludeChannels?: string[];
+            pattern?: string;
+          };
+        }
+      >;
+    }
+  ): PanesConfig {
+    const panes: PaneConfig[] = (parsed.panes || []).map((p) => {
+      // Migrate 'types' to 'patterns' if present
+      // Cast to handle both old and new filter formats
+      const oldFilter = (p.filter || {}) as {
+        types?: string[];
+        patterns?: string[];
+        channels?: string[];
+        excludeChannels?: string[];
+        pattern?: string;
+      };
+      const patterns = oldFilter.patterns || oldFilter.types || [];
+      // Migrate 'channels' to patterns (they were channel names, now group names)
+      if (oldFilter.channels?.length && !patterns.length) {
+        patterns.push(...oldFilter.channels);
       }
-    }
-    for (const p of this.config.classifiers.channel) {
-      new RegExp(p.pattern);
-    }
-    for (const p of this.config.classifiers.channelContent) {
-      new RegExp(p.pattern);
-    }
+
+      return {
+        id: p.id || "unnamed",
+        enabled: p.enabled,
+        position: p.position || "top",
+        height: p.height || 5,
+        filter: {
+          patterns: patterns.length > 0 ? patterns : undefined,
+          excludePatterns: oldFilter.excludeChannels, // Migrate excludeChannels
+          pattern: oldFilter.pattern,
+        },
+        maxMessages: p.maxMessages,
+        passthrough: p.passthrough,
+      };
+    });
+
+    return { panes };
   }
 
-  getClassifiers(): ClassifiersConfig {
-    return this.config.classifiers;
-  }
-
+  /**
+   * Get pane configs - reloads from disk to pick up GUI changes
+   */
   getPanes(): PaneConfig[] {
+    this.config = this.load();
     return this.config.panes;
   }
 
   getTotalPaneHeight(): number {
     return this.config.panes
-      .filter((p) => p.position === "top")
+      .filter((p) => p.position === "top" && p.enabled !== false)
       .reduce((sum, p) => sum + p.height, 0);
   }
 
@@ -125,6 +153,15 @@ export class PaneConfigStore {
     if (!pane) return false;
 
     pane.maxMessages = maxMessages;
+    this.save();
+    return true;
+  }
+
+  setPanePatterns(id: string, patterns: string[]): boolean {
+    const pane = this.config.panes.find((p) => p.id === id);
+    if (!pane) return false;
+
+    pane.filter.patterns = patterns.length > 0 ? patterns : undefined;
     this.save();
     return true;
   }

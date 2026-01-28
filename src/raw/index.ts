@@ -11,6 +11,7 @@ import { TextPrompt } from "./TextPrompt";
 import { SettingsManager } from "../settings/Settings";
 import { PaneManager } from "../panes/PaneManager";
 import { PaneConfigStore } from "../panes/PaneConfigStore";
+import { PatternsConfigStore } from "../patterns/PatternsConfigStore";
 import { MessageClassifier } from "../messages/MessageClassifier";
 import { Updater } from "../update/Updater";
 import { MacroManager } from "../macro/MacroManager";
@@ -109,6 +110,7 @@ class MudClient {
   private menu: Menu;
   private prompt: TextPrompt;
   private paneConfig: PaneConfigStore;
+  private patternsConfig: PatternsConfigStore;
   private paneManager: PaneManager;
   private classifier: MessageClassifier;
   private updater: Updater;
@@ -181,8 +183,9 @@ class MudClient {
     this.menu = new Menu();
     this.prompt = new TextPrompt();
     this.paneConfig = new PaneConfigStore();
+    this.patternsConfig = new PatternsConfigStore();
     this.paneManager = new PaneManager(this.paneConfig.getPanes());
-    this.classifier = new MessageClassifier(this.paneConfig.getClassifiers());
+    this.classifier = new MessageClassifier(this.patternsConfig.getConfig());
     this.updater = new Updater();
     this.macroManager = new MacroManager();
 
@@ -697,6 +700,10 @@ class MudClient {
       this.debugLogStream.write(`---\n`);
     }
 
+    // Reload patterns and pane configs if changed (pick up GUI changes)
+    this.classifier.updateIfChanged(this.patternsConfig.getConfig());
+    this.paneManager.updateConfigs(this.paneConfig.getPanes());
+
     // Classify and route lines
     const lines = toFlush.split("\n");
     const mainLines: string[] = [];
@@ -775,6 +782,10 @@ class MudClient {
 
   // GUI mode output: emit JSON events for panes and main content
   private flushOutputGui(toFlush: string): void {
+    // Reload patterns and pane configs if changed (pick up GUI changes)
+    this.classifier.updateIfChanged(this.patternsConfig.getConfig());
+    this.paneManager.updateConfigs(this.paneConfig.getPanes());
+
     const lines = toFlush.split("\n");
     const mainLines: { text: string; ansi: string }[] = [];
     const paneUpdates: Map<string, GuiPaneMessage[]> = new Map();
@@ -797,8 +808,6 @@ class MudClient {
             text: stripped,
             ansi: line,
             type: classified.type,
-            sender: classified.sender,
-            channel: classified.channel,
             timestamp: Date.now(),
           });
 

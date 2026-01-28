@@ -34,8 +34,18 @@ import {
   saveAliases,
   resetAliases,
 } from './services/aliases-config-store';
+import {
+  PatternsConfig,
+  loadPatternsConfig,
+  savePatternsConfig,
+  resetPatternsConfig,
+  validateRegex,
+} from './services/patterns-config-store';
+import {
+  updatePanePatterns,
+} from './services/panes-config-store';
 
-type TabId = 'terminal' | 'config' | 'panes' | 'aliases';
+type TabId = 'terminal' | 'config' | 'panes' | 'aliases' | 'patterns';
 
 const FONT_FAMILIES = [
   // Bundled fonts (Monaspace)
@@ -82,19 +92,23 @@ let currentPanesConfig: PanesConfig | null = null;
 let originalPanesConfig: PanesConfig | null = null;
 let currentAliases: AliasMap = {};
 let originalAliases: AliasMap = {};
+let currentPatterns: PatternsConfig = { groups: {} };
+let originalPatterns: PatternsConfig = { groups: {} };
 let activeTab: TabId = 'terminal';
 
 async function init() {
-  [currentSettings, currentConfig, currentPanesConfig, currentAliases] = await Promise.all([
+  [currentSettings, currentConfig, currentPanesConfig, currentAliases, currentPatterns] = await Promise.all([
     loadSettings(),
     loadConfig(),
     loadPanesConfig(),
     loadAliases(),
+    loadPatternsConfig(),
   ]);
   originalSettings = JSON.parse(JSON.stringify(currentSettings));
   originalConfig = JSON.parse(JSON.stringify(currentConfig));
   originalPanesConfig = currentPanesConfig ? JSON.parse(JSON.stringify(currentPanesConfig)) : null;
   originalAliases = JSON.parse(JSON.stringify(currentAliases));
+  originalPatterns = JSON.parse(JSON.stringify(currentPatterns));
   render();
 }
 
@@ -107,11 +121,12 @@ function render() {
       <div class="settings-tabs">
         <button class="settings-tab ${activeTab === 'terminal' ? 'active' : ''}" data-tab="terminal">Terminal</button>
         <button class="settings-tab ${activeTab === 'config' ? 'active' : ''}" data-tab="config">Config</button>
-        <button class="settings-tab ${activeTab === 'panes' ? 'active' : ''}" data-tab="panes">Panes</button>
         <button class="settings-tab ${activeTab === 'aliases' ? 'active' : ''}" data-tab="aliases">Aliases</button>
+        <button class="settings-tab ${activeTab === 'patterns' ? 'active' : ''}" data-tab="patterns">Patterns</button>
+        <button class="settings-tab ${activeTab === 'panes' ? 'active' : ''}" data-tab="panes">Panes</button>
       </div>
       <div class="settings-content">
-        ${activeTab === 'terminal' ? buildTerminalSections() : activeTab === 'config' ? buildConfigSection() : activeTab === 'panes' ? buildPanesSection() : buildAliasesSection()}
+        ${activeTab === 'terminal' ? buildTerminalSections() : activeTab === 'config' ? buildConfigSection() : activeTab === 'panes' ? buildPanesSection() : activeTab === 'aliases' ? buildAliasesSection() : buildPatternsSection()}
       </div>
       <div class="settings-footer">
         <button class="settings-btn settings-btn-danger" id="reset-btn">Reset to Defaults</button>
@@ -248,8 +263,11 @@ function buildPanesSection(): string {
     `;
   }
 
+  // Get available pattern groups
+  const availableGroups = Object.keys(currentPatterns.groups).sort();
+
   const paneRows = currentPanesConfig.panes.map((pane) => {
-    const filterDesc = formatPaneFilter(pane);
+    const currentPanePatterns = pane.filter.patterns || [];
     return `
       <div class="settings-pane-card" data-pane-id="${pane.id}">
         <div class="settings-pane-header">
@@ -258,7 +276,6 @@ function buildPanesSection(): string {
                    ${pane.enabled !== false ? 'checked' : ''}>
             <span class="settings-pane-name">${escapeHtml(pane.id)}</span>
           </div>
-          <span class="settings-pane-filter">${filterDesc}</span>
         </div>
         <div class="settings-pane-options">
           <div class="settings-pane-option">
@@ -277,6 +294,18 @@ function buildPanesSection(): string {
                    value="${pane.maxMessages || 500}" min="50" max="2000" step="50">
           </div>
         </div>
+        <div class="settings-pane-patterns">
+          <label class="settings-label">Pattern Groups</label>
+          <div class="settings-pane-pattern-chips">
+            ${availableGroups.length > 0 ? availableGroups.map(group => `
+              <label class="settings-chip ${currentPanePatterns.includes(group) ? 'active' : ''}">
+                <input type="checkbox" data-pane-pattern="${pane.id}:${group}"
+                       ${currentPanePatterns.includes(group) ? 'checked' : ''}>
+                ${escapeHtml(group)}
+              </label>
+            `).join('') : '<span class="settings-description">No pattern groups defined. Create them in the Patterns tab.</span>'}
+          </div>
+        </div>
       </div>
     `;
   }).join('');
@@ -284,6 +313,9 @@ function buildPanesSection(): string {
   return `
     <div class="settings-section">
       <h3>Panes</h3>
+      <p class="settings-description">
+        Select which pattern groups each pane should capture. Messages matching selected groups will appear in the pane.
+      </p>
       <div class="settings-panes-list">
         ${paneRows}
       </div>
@@ -292,20 +324,6 @@ function buildPanesSection(): string {
       Edit <code>~/.config/mud-client/panes.yaml</code> for advanced configuration.
     </div>
   `;
-}
-
-function formatPaneFilter(pane: PaneConfig): string {
-  const parts: string[] = [];
-  if (pane.filter.types && pane.filter.types.length > 0) {
-    parts.push(pane.filter.types.join(', '));
-  }
-  if (pane.filter.channels && pane.filter.channels.length > 0) {
-    parts.push(`channels: ${pane.filter.channels.join(', ')}`);
-  }
-  if (pane.filter.pattern) {
-    parts.push(`pattern`);
-  }
-  return parts.length > 0 ? parts.join(' | ') : 'all messages';
 }
 
 function buildAliasesSection(): string {
@@ -337,6 +355,91 @@ function buildAliasesSection(): string {
       </div>
     </div>
   `;
+}
+
+function buildPatternsSection(): string {
+  const groupNames = Object.keys(currentPatterns.groups).sort();
+
+  const groupSections = groupNames.map(groupName => {
+    const patterns = currentPatterns.groups[groupName];
+    return `
+      <div class="settings-pattern-group-card" data-group-name="${escapeHtml(groupName)}">
+        <div class="settings-pattern-group-header">
+          <input type="text" class="settings-input settings-group-name-input" data-rename-group="${escapeHtml(groupName)}"
+                 value="${escapeHtml(groupName)}" placeholder="Group name">
+          <button class="settings-btn settings-btn-icon" data-delete-group="${escapeHtml(groupName)}" title="Delete group">\u00d7</button>
+        </div>
+        <div class="settings-patterns-list">
+          ${buildGroupPatternRows(groupName, patterns)}
+        </div>
+        <button class="settings-btn settings-btn-secondary settings-pattern-add" data-add-pattern="${escapeHtml(groupName)}">+ Add Pattern</button>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="settings-section">
+      <h3>About Pattern Groups</h3>
+      <p class="settings-description">
+        Pattern groups use regex to classify MUD output. Messages matching a group's patterns
+        are tagged with that group name, which panes can filter on.
+      </p>
+      <details class="settings-help-details">
+        <summary>How patterns work</summary>
+        <div class="settings-help-content">
+          <p>Each pattern is a regular expression that matches against MUD output lines.</p>
+          <ul>
+            <li><code>^(\\w+) tells you</code> - Matches tell messages</li>
+            <li><code>^\\[gossip\\]</code> - Matches gossip channel</li>
+            <li><code>^You hit</code> - Matches combat output</li>
+          </ul>
+          <p>Create groups like "tell", "gossip", "combat" and add patterns to each.</p>
+        </div>
+      </details>
+    </div>
+
+    <div class="settings-section">
+      <h3>Pattern Groups</h3>
+      ${groupSections || '<div class="settings-empty"><p>No pattern groups defined.</p></div>'}
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-add-group">
+        <input type="text" class="settings-input" id="new-group-name" placeholder="New group name">
+        <button class="settings-btn settings-btn-secondary" id="add-group-btn">+ Add Group</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Continuation Pattern</h3>
+      <p class="settings-description">Lines matching this pattern are treated as continuations of the previous message</p>
+      <div class="settings-pattern-row settings-pattern-single">
+        <input type="text" class="settings-input settings-pattern-input" id="continuation-pattern"
+               value="${escapeHtml(currentPatterns.continuation || '')}" placeholder="^\\s+\\S">
+        <span class="settings-pattern-validation" id="continuation-validation"></span>
+      </div>
+    </div>
+  `;
+}
+
+function buildGroupPatternRows(groupName: string, patterns: string[]): string {
+  if (patterns.length === 0) {
+    return '<div class="settings-empty"><p>No patterns in this group.</p></div>';
+  }
+  return patterns.map((pattern, i) => {
+    const validationResult = validateRegex(pattern);
+    const isValid = validationResult === null;
+    return `
+      <div class="settings-pattern-row" data-group="${escapeHtml(groupName)}" data-pattern-index="${i}">
+        <div class="settings-pattern-main">
+          <input type="text" class="settings-input settings-pattern-input ${isValid ? '' : 'settings-pattern-invalid'}"
+                 data-pattern-input="${escapeHtml(groupName)}:${i}" value="${escapeHtml(pattern)}" placeholder="^pattern.*$">
+          <span class="settings-pattern-validation ${isValid ? 'valid' : 'invalid'}">${isValid ? '\u2713' : '\u2717'}</span>
+          <button class="settings-btn settings-btn-icon" data-delete-pattern="${escapeHtml(groupName)}:${i}" title="Delete pattern">\u00d7</button>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 function bindTabs() {
@@ -531,6 +634,9 @@ function bindInputs() {
 
   // Alias inputs (aliases tab)
   bindAliasInputs();
+
+  // Pattern inputs (patterns tab)
+  bindPatternInputs();
 }
 
 function bindPaneInputs() {
@@ -574,6 +680,36 @@ function bindPaneInputs() {
       const maxMessages = parseInt(el.value, 10);
       if (!isNaN(maxMessages) && maxMessages >= 50) {
         currentPanesConfig = updatePane(currentPanesConfig!, paneId, { maxMessages });
+      }
+    });
+  });
+
+  // Pattern group checkboxes
+  document.querySelectorAll('[data-pane-pattern]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const [paneId, groupName] = el.dataset.panePattern!.split(':');
+
+    el.addEventListener('change', () => {
+      const pane = currentPanesConfig!.panes.find(p => p.id === paneId);
+      if (!pane) return;
+
+      const currentPatternsList = pane.filter.patterns || [];
+      let newPatterns: string[];
+
+      if (el.checked) {
+        // Add group
+        newPatterns = [...currentPatternsList, groupName];
+      } else {
+        // Remove group
+        newPatterns = currentPatternsList.filter(p => p !== groupName);
+      }
+
+      currentPanesConfig = updatePanePatterns(currentPanesConfig!, paneId, newPatterns);
+
+      // Update chip visual state
+      const label = el.parentElement;
+      if (label) {
+        label.classList.toggle('active', el.checked);
       }
     });
   });
@@ -634,6 +770,141 @@ function bindAliasInputs() {
       render();
     }
   });
+}
+
+function bindPatternInputs() {
+  // Helper to update validation indicator
+  const updateValidation = (input: HTMLInputElement, validationEl: Element | null | undefined) => {
+    const result = validateRegex(input.value);
+    const isValid = result === null;
+    input.classList.toggle('settings-pattern-invalid', !isValid);
+    if (validationEl) {
+      validationEl.className = `settings-pattern-validation ${isValid ? 'valid' : 'invalid'}`;
+      validationEl.textContent = isValid ? '\u2713' : '\u2717';
+    }
+  };
+
+  // Pattern inputs within groups
+  document.querySelectorAll('[data-pattern-input]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const [groupName, indexStr] = el.dataset.patternInput!.split(':');
+    const index = parseInt(indexStr, 10);
+    const validationEl = el.parentElement?.querySelector('.settings-pattern-validation');
+
+    el.addEventListener('input', () => {
+      updateValidation(el, validationEl);
+      if (currentPatterns.groups[groupName]) {
+        currentPatterns.groups[groupName][index] = el.value;
+      }
+    });
+  });
+
+  // Rename group inputs
+  document.querySelectorAll('[data-rename-group]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const originalName = el.dataset.renameGroup!;
+
+    el.addEventListener('change', () => {
+      const newName = el.value.trim();
+      if (newName && newName !== originalName && !currentPatterns.groups[newName]) {
+        // Rename the group
+        currentPatterns.groups[newName] = currentPatterns.groups[originalName];
+        delete currentPatterns.groups[originalName];
+        render();
+      } else if (!newName || currentPatterns.groups[newName]) {
+        // Invalid or duplicate name, revert
+        el.value = originalName;
+      }
+    });
+  });
+
+  // Delete group buttons
+  document.querySelectorAll('[data-delete-group]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const groupName = el.dataset.deleteGroup!;
+
+    el.addEventListener('click', () => {
+      delete currentPatterns.groups[groupName];
+      render();
+    });
+  });
+
+  // Add group button
+  document.getElementById('add-group-btn')?.addEventListener('click', () => {
+    const nameInput = document.getElementById('new-group-name') as HTMLInputElement;
+    const name = nameInput?.value.trim();
+
+    if (name && !currentPatterns.groups[name]) {
+      currentPatterns.groups[name] = [];
+      render();
+    }
+  });
+
+  // Add pattern buttons
+  document.querySelectorAll('[data-add-pattern]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const groupName = el.dataset.addPattern!;
+
+    el.addEventListener('click', () => {
+      if (currentPatterns.groups[groupName]) {
+        currentPatterns.groups[groupName].push('');
+        render();
+        // Focus the newly added pattern input
+        const newIndex = currentPatterns.groups[groupName].length - 1;
+        const newInput = document.querySelector(`[data-pattern-input="${groupName}:${newIndex}"]`) as HTMLInputElement;
+        if (newInput) {
+          newInput.focus();
+          newInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    });
+  });
+
+  // Delete pattern buttons
+  document.querySelectorAll('[data-delete-pattern]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const [groupName, indexStr] = el.dataset.deletePattern!.split(':');
+    const index = parseInt(indexStr, 10);
+
+    el.addEventListener('click', () => {
+      if (currentPatterns.groups[groupName]) {
+        currentPatterns.groups[groupName].splice(index, 1);
+        render();
+      }
+    });
+  });
+
+  // Continuation pattern
+  const continuationInput = document.getElementById('continuation-pattern') as HTMLInputElement;
+  const continuationValidation = document.getElementById('continuation-validation');
+  if (continuationInput) {
+    const updateContinuationValidation = () => {
+      const value = continuationInput.value.trim();
+      if (value) {
+        const result = validateRegex(value);
+        const isValid = result === null;
+        continuationInput.classList.toggle('settings-pattern-invalid', !isValid);
+        if (continuationValidation) {
+          continuationValidation.className = `settings-pattern-validation ${isValid ? 'valid' : 'invalid'}`;
+          continuationValidation.textContent = isValid ? '\u2713' : '\u2717';
+        }
+      } else {
+        continuationInput.classList.remove('settings-pattern-invalid');
+        if (continuationValidation) {
+          continuationValidation.className = 'settings-pattern-validation';
+          continuationValidation.textContent = '';
+        }
+      }
+    };
+
+    continuationInput.addEventListener('input', () => {
+      updateContinuationValidation();
+      currentPatterns.continuation = continuationInput.value.trim() || undefined;
+    });
+
+    // Initial validation state
+    updateContinuationValidation();
+  }
 }
 
 function updateConfig(
@@ -707,6 +978,7 @@ function bindButtons() {
       saveSettings(currentSettings),
       saveConfig(currentConfig),
       saveAliases(currentAliases),
+      savePatternsConfig(currentPatterns),
     ];
     if (currentPanesConfig) {
       saves.push(savePanesConfig(currentPanesConfig));
@@ -715,6 +987,7 @@ function bindButtons() {
     await emitSettingsChange();
     await emitConfigChange();
     await emitPanesConfigChange();
+    await emitPatternsConfigChange();
     getCurrentWindow().close();
   });
 
@@ -732,6 +1005,8 @@ function bindButtons() {
       currentConfig = await resetConfig();
     } else if (activeTab === 'aliases') {
       currentAliases = await resetAliases();
+    } else if (activeTab === 'patterns') {
+      currentPatterns = await resetPatternsConfig();
     }
     // Note: No reset for panes - they need the YAML file
     render();
@@ -750,6 +1025,10 @@ async function emitPanesConfigChange() {
   if (currentPanesConfig) {
     await emit('panes-config-changed', currentPanesConfig);
   }
+}
+
+async function emitPatternsConfigChange() {
+  await emit('patterns-config-changed', currentPatterns);
 }
 
 // Handle Escape key to close
