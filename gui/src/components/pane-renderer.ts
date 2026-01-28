@@ -20,6 +20,8 @@ export interface PaneRendererOptions {
   height: number; // Initial height in lines (can be fractional)
   minHeight?: number; // Minimum height in pixels
   onResize?: (paneId: string, newHeight: number) => void;
+  onClose?: (paneId: string) => void;
+  onPopOut?: (paneId: string) => void;
   isFloating?: boolean; // If true, fills parent and hides resize handle
 }
 
@@ -59,10 +61,50 @@ export class PaneRenderer {
     this.content.className = "pane-content";
     this.container.appendChild(this.content);
 
-    // Add inline title in top right (inside the pane)
+    // Add inline title bar in top right (inside the pane)
     this.titleEl = document.createElement("div");
     this.titleEl.className = "pane-inline-title";
-    this.titleEl.textContent = options.title || options.id;
+
+    // Title text
+    const titleText = document.createElement("span");
+    titleText.className = "pane-title-text";
+    titleText.textContent = options.title || options.id;
+    this.titleEl.appendChild(titleText);
+
+    // Action buttons (only for docked panes)
+    if (!options.isFloating) {
+      const actions = document.createElement("span");
+      actions.className = "pane-title-actions";
+
+      // Pop-out button
+      if (options.onPopOut) {
+        const popOutBtn = document.createElement("button");
+        popOutBtn.className = "pane-action-btn";
+        popOutBtn.title = "Pop out to window";
+        popOutBtn.innerHTML = "⧉"; // Window/pop-out symbol
+        popOutBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          options.onPopOut!(this.id);
+        });
+        actions.appendChild(popOutBtn);
+      }
+
+      // Close button
+      if (options.onClose) {
+        const closeBtn = document.createElement("button");
+        closeBtn.className = "pane-action-btn";
+        closeBtn.title = "Close pane";
+        closeBtn.innerHTML = "×";
+        closeBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          options.onClose!(this.id);
+        });
+        actions.appendChild(closeBtn);
+      }
+
+      this.titleEl.appendChild(actions);
+    }
+
     this.container.appendChild(this.titleEl);
 
     // Create resize handle at the bottom (skip for floating panes)

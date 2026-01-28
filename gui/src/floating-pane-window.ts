@@ -3,7 +3,7 @@
  * Extracts pane ID from the window label (pane-{id})
  */
 
-import { listen } from '@tauri-apps/api/event';
+import { listen, emit } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { PaneRenderer, PaneMessage } from './components/pane-renderer';
 import { loadSettings } from './services/settings-store';
@@ -38,10 +38,19 @@ async function main() {
     paneRenderer.addMessages(event.payload);
   });
 
+  // Listen for clear events
+  listen(`pane-clear-${paneId}`, () => {
+    paneRenderer.clear();
+  });
+
   // Listen for settings changes
   listen<TerminalSettings>('settings-changed', (event) => {
     applySettings(event.payload);
   });
+
+  // Signal to main window that we're ready to receive messages
+  // Main window will respond by sending stored messages
+  emit(`pane-ready-${paneId}`, {});
 }
 
 function applySettings(settings: TerminalSettings) {

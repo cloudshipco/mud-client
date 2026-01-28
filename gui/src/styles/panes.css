@@ -47,19 +47,54 @@
   background: transparent;
 }
 
-/* Inline title in top right */
+/* Inline title bar in top right */
 .pane-inline-title {
   position: absolute;
   top: 2px;
-  right: 12px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: #555;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  pointer-events: none;
   z-index: 1;
   background: var(--theme-bg, #1e1e1e);
   padding: 0 4px;
+}
+
+.pane-title-text {
+  pointer-events: none;
+}
+
+.pane-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.pane:hover .pane-title-actions {
+  opacity: 1;
+}
+
+.pane-action-btn {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: color 0.1s, background 0.1s;
+}
+
+.pane-action-btn:hover {
+  color: #ccc;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* Resize handle at bottom of pane */

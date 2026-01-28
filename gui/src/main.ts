@@ -15,7 +15,7 @@ import { PanesConfig, PaneConfig, savePanesConfig, loadPanesConfig, updatePane }
 import { NotificationsConfig, loadNotificationsConfig } from "./services/notifications-config-store";
 import { TerminalSettings } from "./types/settings";
 import { parseGuiEvent, GuiEvent } from "./types/gui-events";
-import { PaneRenderer } from "./components/pane-renderer";
+import { PaneRenderer, PaneMessage } from "./components/pane-renderer";
 import { MainOutput } from "./components/main-output";
 import { InputLine } from "./components/input-line";
 import { MenuRenderer } from "./components/menu-renderer";
@@ -30,8 +30,43 @@ const floatingPanes: Map<string, WebviewWindow> = new Map();
 const floatingPanesClosingProgrammatically: Set<string> = new Set();
 let currentPanesConfig: PanesConfig | null = null;
 
+// Shared message store - persists messages regardless of pane visibility/mode
+// Messages are stored here even when pane is closed/disabled, so reopening shows history
+const paneMessageStore: Map<string, PaneMessage[]> = new Map();
+const MAX_STORED_MESSAGES = 500;
+
 // Pending update held until user explicitly runs /update
 let pendingUpdate: Awaited<ReturnType<typeof check>> | null = null;
+
+/**
+ * Add messages to the shared store for a pane
+ */
+function storeMessages(paneId: string, messages: PaneMessage[]): void {
+  let stored = paneMessageStore.get(paneId);
+  if (!stored) {
+    stored = [];
+    paneMessageStore.set(paneId, stored);
+  }
+  stored.push(...messages);
+  // Trim to max
+  while (stored.length > MAX_STORED_MESSAGES) {
+    stored.shift();
+  }
+}
+
+/**
+ * Get all stored messages for a pane
+ */
+function getStoredMessages(paneId: string): PaneMessage[] {
+  return paneMessageStore.get(paneId) || [];
+}
+
+/**
+ * Clear stored messages for a pane
+ */
+function clearStoredMessages(paneId: string): void {
+  paneMessageStore.delete(paneId);
+}
 
 async function openFloatingPane(paneConfig: PaneConfig) {
   const windowLabel = `pane-${paneConfig.id}`;
@@ -68,6 +103,16 @@ async function openFloatingPane(paneConfig: PaneConfig) {
   const floatingWindow = new WebviewWindow(windowLabel, windowOptions);
   floatingPanes.set(paneConfig.id, floatingWindow);
 
+  // Listen for ready signal from the floating window, then send stored messages
+  const unlistenReady = await listen(`pane-ready-${paneConfig.id}`, () => {
+    const storedMessages = getStoredMessages(paneConfig.id);
+    if (storedMessages.length > 0) {
+      emit(`pane-messages-${paneConfig.id}`, storedMessages);
+    }
+    // Only need to handle this once per window open
+    unlistenReady();
+  });
+
   floatingWindow.once("tauri://destroyed", async () => {
     floatingPanes.delete(paneConfig.id);
     // If the user closed the window (not a programmatic close), revert to docked
@@ -75,6 +120,8 @@ async function openFloatingPane(paneConfig: PaneConfig) {
       if (currentPanesConfig) {
         currentPanesConfig = updatePane(currentPanesConfig, paneConfig.id, { position: 'top' });
         try { await savePanesConfig(currentPanesConfig); } catch { /* non-critical */ }
+        // Emit config change event so a docked pane is created with the stored messages
+        emit('panes-config-changed', currentPanesConfig);
       }
     }
   });
@@ -128,7 +175,7 @@ async function openSettings() {
   settingsWindow = new WebviewWindow("settings", {
     url: "settings.html",
     title: "Settings",
-    width: 660,
+    width: 760,
     height: 820,
     resizable: true,
     minimizable: false,
@@ -286,17 +333,69 @@ async function main() {
   });
   const promptRenderer = new PromptRenderer(document.body);
 
-  // Get or create pane renderer
-  function getOrCreatePane(id: string): PaneRenderer {
+  // Handle pane close (disable the pane)
+  async function handlePaneClose(paneId: string) {
+    if (!currentPanesConfig) return;
+    currentPanesConfig = updatePane(currentPanesConfig, paneId, { enabled: false });
+    try {
+      await savePanesConfig(currentPanesConfig);
+    } catch { /* non-critical */ }
+    // Remove the docked pane
+    const pane = panes.get(paneId);
+    if (pane) {
+      pane.destroy();
+      panes.delete(paneId);
+    }
+  }
+
+  // Handle pane pop-out (convert to floating window)
+  async function handlePanePopOut(paneId: string) {
+    if (!currentPanesConfig) return;
+    currentPanesConfig = updatePane(currentPanesConfig, paneId, { position: 'floating' });
+    try {
+      await savePanesConfig(currentPanesConfig);
+    } catch { /* non-critical */ }
+    // Remove docked pane and open floating window
+    const pane = panes.get(paneId);
+    if (pane) {
+      pane.destroy();
+      panes.delete(paneId);
+    }
+    const paneConfig = currentPanesConfig.panes.find(p => p.id === paneId);
+    if (paneConfig) {
+      openFloatingPane(paneConfig);
+    }
+  }
+
+  // Get or create pane renderer (for docked panes only)
+  function getOrCreatePane(id: string): PaneRenderer | null {
     let pane = panes.get(id);
     if (!pane) {
-      // Create new pane with default height
+      // Check if this pane should be floating - if so, don't create a docked renderer
+      const localConfig = currentPanesConfig?.panes.find(p => p.id === id);
+      if (localConfig?.position === "floating") {
+        // Pane should be floating - open the window if not already open
+        if (!floatingPanes.has(id)) {
+          openFloatingPane(localConfig);
+        }
+        return null;
+      }
+
+      // Create new docked pane with configured or default height
       pane = new PaneRenderer(panesContainer, {
         id,
         title: id.charAt(0).toUpperCase() + id.slice(1),
-        height: 5,
+        height: localConfig?.height || 5,
+        onClose: handlePaneClose,
+        onPopOut: handlePanePopOut,
       });
       panes.set(id, pane);
+
+      // Replay any stored messages (e.g., from when pane was previously open)
+      const storedMessages = getStoredMessages(id);
+      if (storedMessages.length > 0) {
+        pane.addMessages(storedMessages);
+      }
     }
     return pane;
   }
@@ -329,13 +428,19 @@ async function main() {
   function handleGuiEvent(event: GuiEvent) {
     switch (event.event) {
       case "pane": {
+        // Always store messages in the shared store (persists across mode changes)
+        storeMessages(event.id, event.messages);
+
         // Check if this pane is floating
         if (floatingPanes.has(event.id)) {
           // Forward messages to the floating window
           emit(`pane-messages-${event.id}`, event.messages);
         } else {
+          // Get or create docked pane (returns null if pane should be floating)
           const pane = getOrCreatePane(event.id);
-          pane.addMessages(event.messages);
+          if (pane) {
+            pane.addMessages(event.messages);
+          }
         }
         // Send desktop notification for configured pattern groups when window is not focused
         if (
@@ -407,11 +512,21 @@ async function main() {
         if (event.target === "main") {
           mainOutput.clear();
         } else if (event.target === "pane" && event.id) {
+          clearStoredMessages(event.id);
           const pane = panes.get(event.id);
           if (pane) pane.clear();
+          // Also clear floating pane if open
+          if (floatingPanes.has(event.id)) {
+            emit(`pane-clear-${event.id}`, {});
+          }
         } else if (event.target === "all") {
           mainOutput.clear();
+          paneMessageStore.clear();
           panes.forEach((pane) => pane.clear());
+          // Clear all floating panes
+          for (const paneId of floatingPanes.keys()) {
+            emit(`pane-clear-${paneId}`, {});
+          }
         }
         break;
       }
@@ -458,8 +573,15 @@ async function main() {
               id: paneConfig.id,
               title: paneConfig.title,
               height: paneConfig.height,
+              onClose: handlePaneClose,
+              onPopOut: handlePanePopOut,
             });
             panes.set(paneConfig.id, pane);
+            // Replay stored messages
+            const storedMessages = getStoredMessages(paneConfig.id);
+            if (storedMessages.length > 0) {
+              pane.addMessages(storedMessages);
+            }
           }
         }
         break;
@@ -588,8 +710,15 @@ async function main() {
           id: paneConfig.id,
           title: paneConfig.id.charAt(0).toUpperCase() + paneConfig.id.slice(1),
           height: paneConfig.height,
+          onClose: handlePaneClose,
+          onPopOut: handlePanePopOut,
         });
         panes.set(paneConfig.id, pane);
+        // Replay stored messages
+        const storedMessages = getStoredMessages(paneConfig.id);
+        if (storedMessages.length > 0) {
+          pane.addMessages(storedMessages);
+        }
       }
     }
 
