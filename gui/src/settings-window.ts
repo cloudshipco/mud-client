@@ -51,12 +51,23 @@ import {
   resetNotificationsConfig,
 } from './services/notifications-config-store';
 import {
+  TriggersConfig,
+  TriggerDefinition,
+  TriggerCondition,
+  TriggerAction,
+  CONDITION_OPERATORS,
+  ACTION_TYPES,
+  loadTriggersConfig,
+  saveTriggersConfig,
+  resetTriggersConfig,
+} from './services/triggers-config-store';
+import {
   isPermissionGranted,
   requestPermission,
   sendNotification,
 } from '@tauri-apps/plugin-notification';
 
-type TabId = 'terminal' | 'config' | 'panes' | 'aliases' | 'patterns' | 'notifications';
+type TabId = 'terminal' | 'config' | 'panes' | 'aliases' | 'patterns' | 'notifications' | 'triggers';
 
 const FONT_FAMILIES = [
   // Bundled fonts (Monaspace)
@@ -95,6 +106,36 @@ const FONT_WEIGHTS: { value: FontWeight; label: string }[] = [
   { value: 900, label: '900 (Black)' },
 ];
 
+/**
+ * Extract named capture group names from a regex pattern.
+ * Named capture groups use the syntax (?<name>...).
+ */
+function extractCaptureGroups(pattern: string): string[] {
+  const groups: string[] = [];
+  const regex = /\(\?<(\w+)>/g;
+  let match;
+  while ((match = regex.exec(pattern)) !== null) {
+    groups.push(match[1]);
+  }
+  return groups;
+}
+
+/**
+ * Get all unique capture group names from selected pattern groups.
+ */
+function getCaptureGroupsForPatternGroups(patternGroups: string[]): string[] {
+  const captureGroups = new Set<string>();
+  for (const groupName of patternGroups) {
+    const patterns = currentPatterns.groups[groupName] || [];
+    for (const pattern of patterns) {
+      for (const capture of extractCaptureGroups(pattern)) {
+        captureGroups.add(capture);
+      }
+    }
+  }
+  return Array.from(captureGroups).sort();
+}
+
 let currentSettings: TerminalSettings;
 let originalSettings: TerminalSettings;
 let currentConfig: AppConfig;
@@ -107,16 +148,19 @@ let currentPatterns: PatternsConfig = { groups: {} };
 let originalPatterns: PatternsConfig = { groups: {} };
 let currentNotifications: NotificationsConfig = { enabled: true, groups: [] };
 let originalNotifications: NotificationsConfig = { enabled: true, groups: [] };
+let currentTriggers: TriggersConfig = { triggers: [] };
+let originalTriggers: TriggersConfig = { triggers: [] };
 let activeTab: TabId = 'terminal';
 
 async function init() {
-  [currentSettings, currentConfig, currentPanesConfig, currentAliases, currentPatterns, currentNotifications] = await Promise.all([
+  [currentSettings, currentConfig, currentPanesConfig, currentAliases, currentPatterns, currentNotifications, currentTriggers] = await Promise.all([
     loadSettings(),
     loadConfig(),
     loadPanesConfig(),
     loadAliases(),
     loadPatternsConfig(),
     loadNotificationsConfig(),
+    loadTriggersConfig(),
   ]);
   originalSettings = JSON.parse(JSON.stringify(currentSettings));
   originalConfig = JSON.parse(JSON.stringify(currentConfig));
@@ -124,6 +168,7 @@ async function init() {
   originalAliases = JSON.parse(JSON.stringify(currentAliases));
   originalPatterns = JSON.parse(JSON.stringify(currentPatterns));
   originalNotifications = JSON.parse(JSON.stringify(currentNotifications));
+  originalTriggers = JSON.parse(JSON.stringify(currentTriggers));
   render();
 }
 
@@ -135,6 +180,7 @@ function buildTabContent(): string {
     case 'aliases': return buildAliasesSection();
     case 'patterns': return buildPatternsSection();
     case 'notifications': return buildNotificationsSection();
+    case 'triggers': return buildTriggersSection();
     default: return '';
   }
 }
@@ -152,12 +198,13 @@ function render() {
         <button class="settings-tab ${activeTab === 'patterns' ? 'active' : ''}" data-tab="patterns">Patterns</button>
         <button class="settings-tab ${activeTab === 'panes' ? 'active' : ''}" data-tab="panes">Panes</button>
         <button class="settings-tab ${activeTab === 'notifications' ? 'active' : ''}" data-tab="notifications">Notifications</button>
+        <button class="settings-tab ${activeTab === 'triggers' ? 'active' : ''}" data-tab="triggers">Triggers</button>
       </div>
       <div class="settings-content">
         ${buildTabContent()}
       </div>
       <div class="settings-footer">
-        <button class="settings-btn settings-btn-danger" id="reset-btn">Reset to Defaults</button>
+        ${activeTab === 'terminal' ? '<button class="settings-btn settings-btn-danger" id="reset-btn">Reset to Defaults</button>' : ''}
         <button class="settings-btn settings-btn-secondary" id="cancel-btn">Cancel</button>
         <button class="settings-btn settings-btn-primary" id="apply-btn">Apply</button>
       </div>
@@ -412,10 +459,23 @@ function buildPatternsSection(): string {
 
   return `
     <div class="settings-section">
+      <h3>Pattern Tester</h3>
+      <p class="settings-description">Test which pattern groups match a line of MUD output.</p>
+      <div class="settings-pattern-tester">
+        <div class="settings-row">
+          <input type="text" class="settings-input" id="pattern-test-input"
+                 placeholder="Paste MUD output here to test which patterns match...">
+          <button class="settings-btn settings-btn-secondary" id="pattern-test-btn">Test</button>
+        </div>
+        <div id="pattern-test-result" class="settings-pattern-test-result"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h3>About Pattern Groups</h3>
       <p class="settings-description">
         Pattern groups use regex to classify MUD output. Messages matching a group's patterns
-        are tagged with that group name, which panes can filter on.
+        are tagged with that group name, which panes and triggers can use.
       </p>
       <details class="settings-help-details">
         <summary>How patterns work</summary>
@@ -427,6 +487,7 @@ function buildPatternsSection(): string {
             <li><code>^You hit</code> - Matches combat output</li>
           </ul>
           <p>Create groups like "tell", "gossip", "combat" and add patterns to each.</p>
+          <p>Use named capture groups like <code>(?&lt;name&gt;...)</code> to extract values for trigger conditions.</p>
         </div>
       </details>
     </div>
@@ -517,6 +578,384 @@ function buildNotificationsSection(): string {
       </div>
     </div>
   `;
+}
+
+function buildTriggersSection(): string {
+  // Get available pattern groups from the Patterns tab
+  const availableGroups = Object.keys(currentPatterns.groups).sort();
+
+  const triggerCards = currentTriggers.triggers.map((trigger, triggerIndex) => {
+    // Build pattern group selection chips
+    const patternChips = availableGroups.map(groupName => {
+      const isSelected = trigger.patternGroups.includes(groupName);
+      return `
+        <label class="settings-chip ${isSelected ? 'active' : ''}">
+          <input type="checkbox" data-trigger-pattern-group="${triggerIndex}:${groupName}"
+                 ${isSelected ? 'checked' : ''}>
+          ${escapeHtml(groupName)}
+        </label>
+      `;
+    }).join('');
+
+    // Get available capture groups from selected pattern groups
+    const availableCaptureGroups = getCaptureGroupsForPatternGroups(trigger.patternGroups);
+
+    const conditionRows = (trigger.conditions || []).map((condition, condIndex) => {
+      const valueStr = Array.isArray(condition.value)
+        ? condition.value.join(', ')
+        : String(condition.value ?? '');
+
+      // Build capture group options - include current value if not in list (for backwards compat)
+      const captureOptions = [...availableCaptureGroups];
+      if (condition.capture && !captureOptions.includes(condition.capture)) {
+        captureOptions.unshift(condition.capture);
+      }
+
+      return `
+        <div class="settings-trigger-condition-row" data-trigger-condition="${triggerIndex}:${condIndex}">
+          <select class="settings-select settings-trigger-condition-capture"
+                  data-trigger-cond-capture="${triggerIndex}:${condIndex}">
+            <option value="">Select capture...</option>
+            ${captureOptions.map(cap =>
+              `<option value="${escapeHtml(cap)}" ${condition.capture === cap ? 'selected' : ''}>${escapeHtml(cap)}</option>`
+            ).join('')}
+          </select>
+          <select class="settings-select settings-trigger-condition-operator"
+                  data-trigger-cond-operator="${triggerIndex}:${condIndex}">
+            ${CONDITION_OPERATORS.map(op =>
+              `<option value="${op.value}" ${condition.operator === op.value ? 'selected' : ''}>${escapeHtml(op.label)}</option>`
+            ).join('')}
+          </select>
+          <input type="text" class="settings-input settings-trigger-condition-value"
+                 data-trigger-cond-value="${triggerIndex}:${condIndex}"
+                 value="${escapeHtml(valueStr)}" placeholder="value or a, b, c">
+          <button class="settings-btn settings-btn-icon" data-delete-trigger-condition="${triggerIndex}:${condIndex}" title="Delete condition">\u00d7</button>
+        </div>
+      `;
+    }).join('');
+
+    const actionRows = (trigger.actions || []).map((action, actionIndex) => {
+      const isTriggerAction = action.type === 'disable_trigger' || action.type === 'enable_trigger';
+      const triggerOptions = currentTriggers.triggers
+        .map((t, i) => ({ name: t.name, index: i }))
+        .filter(t => t.name && t.name.trim() !== ''); // Only show named triggers
+
+      const valueInput = isTriggerAction
+        ? `<select class="settings-select settings-trigger-action-value"
+                  data-trigger-action-value="${triggerIndex}:${actionIndex}">
+            <option value="">Select trigger...</option>
+            ${triggerOptions.map(t =>
+              `<option value="${escapeHtml(t.name)}" ${action.value === t.name ? 'selected' : ''}>${escapeHtml(t.name)}</option>`
+            ).join('')}
+          </select>`
+        : `<input type="text" class="settings-input settings-trigger-action-value"
+                 data-trigger-action-value="${triggerIndex}:${actionIndex}"
+                 value="${escapeHtml(action.value)}" placeholder="${action.type === 'send' ? 'command to send' : 'notification message'}">`;
+
+      return `
+        <div class="settings-trigger-action-row" data-trigger-action="${triggerIndex}:${actionIndex}">
+          <select class="settings-select settings-trigger-action-type"
+                  data-trigger-action-type="${triggerIndex}:${actionIndex}">
+            ${ACTION_TYPES.map(at =>
+              `<option value="${at.value}" ${action.type === at.value ? 'selected' : ''}>${escapeHtml(at.label)}</option>`
+            ).join('')}
+          </select>
+          ${valueInput}
+          <button class="settings-btn settings-btn-icon" data-delete-trigger-action="${triggerIndex}:${actionIndex}" title="Delete action">\u00d7</button>
+        </div>
+      `;
+    }).join('');
+
+    // Show message if no pattern groups are defined yet
+    const patternsMessage = availableGroups.length === 0
+      ? '<span class="settings-description">No pattern groups defined. Create patterns in the Patterns tab first.</span>'
+      : (patternChips || '<span class="settings-description">Select pattern groups above.</span>');
+
+    return `
+      <div class="settings-pattern-group-card" data-trigger-index="${triggerIndex}">
+        <div class="settings-pattern-group-header">
+          <input type="checkbox" class="settings-checkbox" data-trigger-enabled="${triggerIndex}"
+                 ${trigger.enabled ? 'checked' : ''}>
+          <input type="text" class="settings-input settings-group-name-input"
+                 data-trigger-name="${triggerIndex}"
+                 value="${escapeHtml(trigger.name)}" placeholder="Trigger name">
+          <button class="settings-btn settings-btn-icon" data-delete-trigger="${triggerIndex}" title="Delete trigger">\u00d7</button>
+        </div>
+
+        <div class="settings-trigger-subsection">
+          <label class="settings-label">Patterns <span class="settings-description">(OR logic - any match fires)</span></label>
+          <div class="settings-pane-pattern-chips">
+            ${patternsMessage}
+          </div>
+        </div>
+
+        <div class="settings-trigger-subsection">
+          <label class="settings-label">Conditions <span class="settings-description">(optional, AND logic)</span></label>
+          <div class="settings-trigger-conditions-list">
+            ${conditionRows || ''}
+          </div>
+          <button class="settings-btn settings-btn-secondary"
+                  data-add-trigger-condition="${triggerIndex}">+ Add Condition</button>
+        </div>
+
+        <div class="settings-trigger-subsection">
+          <label class="settings-label">Actions</label>
+          <div class="settings-trigger-actions-list">
+            ${actionRows || ''}
+          </div>
+          <button class="settings-btn settings-btn-secondary"
+                  data-add-trigger-action="${triggerIndex}">+ Add Action</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="settings-section">
+      <h3>About Triggers</h3>
+      <p class="settings-description">
+        Triggers match MUD output with patterns and automatically execute commands.
+        Define patterns in the <strong>Trigger Patterns</strong> tab, then select them here.
+      </p>
+      <details class="settings-help-details">
+        <summary>How triggers work</summary>
+        <div class="settings-help-content">
+          <p>Select one or more patterns (OR logic). When any pattern matches,
+          conditions are checked (AND logic). If all conditions pass, the actions are executed.</p>
+          <ul>
+            <li>Patterns are defined in the Trigger Patterns tab</li>
+            <li>Conditions reference named capture groups from patterns</li>
+            <li>Actions can be MUD commands or client commands (prefix with <code>/</code>)</li>
+            <li>Use <code>/trigger disable trigger-name</code> as an action to disable another trigger</li>
+          </ul>
+        </div>
+      </details>
+    </div>
+
+    <div class="settings-section">
+      <h3>Triggers</h3>
+      ${triggerCards || '<div class="settings-empty"><p>No triggers defined.</p></div>'}
+    </div>
+
+    <div class="settings-section">
+      <button class="settings-btn settings-btn-secondary" id="add-trigger-btn">+ Add Trigger</button>
+    </div>
+  `;
+}
+
+function bindTriggerInputs() {
+  // Enable/disable toggles
+  document.querySelectorAll('[data-trigger-enabled]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const index = parseInt(el.dataset.triggerEnabled!, 10);
+    el.addEventListener('change', () => {
+      currentTriggers.triggers[index].enabled = el.checked;
+    });
+  });
+
+  // Trigger name inputs
+  document.querySelectorAll('[data-trigger-name]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const index = parseInt(el.dataset.triggerName!, 10);
+    el.addEventListener('change', () => {
+      const name = el.value.trim();
+      if (name) {
+        currentTriggers.triggers[index].name = name;
+      } else {
+        el.value = currentTriggers.triggers[index].name;
+      }
+    });
+  });
+
+  // Pattern group selection checkboxes (chips)
+  document.querySelectorAll('[data-trigger-pattern-group]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const [triggerStr, groupName] = el.dataset.triggerPatternGroup!.split(':');
+    const triggerIndex = parseInt(triggerStr, 10);
+
+    el.addEventListener('change', () => {
+      const trigger = currentTriggers.triggers[triggerIndex];
+      if (el.checked) {
+        // Add group if not already present
+        if (!trigger.patternGroups.includes(groupName)) {
+          trigger.patternGroups.push(groupName);
+        }
+      } else {
+        // Remove group
+        trigger.patternGroups = trigger.patternGroups.filter(g => g !== groupName);
+      }
+      // Re-render to update capture group dropdowns in conditions
+      render();
+    });
+  });
+
+  // Condition capture selects
+  document.querySelectorAll('[data-trigger-cond-capture]').forEach((input) => {
+    const el = input as HTMLSelectElement;
+    const [triggerStr, condStr] = el.dataset.triggerCondCapture!.split(':');
+    const triggerIndex = parseInt(triggerStr, 10);
+    const condIndex = parseInt(condStr, 10);
+    el.addEventListener('change', () => {
+      const conditions = currentTriggers.triggers[triggerIndex].conditions;
+      if (conditions) conditions[condIndex].capture = el.value;
+    });
+  });
+
+  // Condition operator selects
+  document.querySelectorAll('[data-trigger-cond-operator]').forEach((input) => {
+    const el = input as HTMLSelectElement;
+    const [triggerStr, condStr] = el.dataset.triggerCondOperator!.split(':');
+    const triggerIndex = parseInt(triggerStr, 10);
+    const condIndex = parseInt(condStr, 10);
+    el.addEventListener('change', () => {
+      const conditions = currentTriggers.triggers[triggerIndex].conditions;
+      if (conditions) conditions[condIndex].operator = el.value as any;
+    });
+  });
+
+  // Condition value inputs
+  document.querySelectorAll('[data-trigger-cond-value]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const [triggerStr, condStr] = el.dataset.triggerCondValue!.split(':');
+    const triggerIndex = parseInt(triggerStr, 10);
+    const condIndex = parseInt(condStr, 10);
+    el.addEventListener('input', () => {
+      const conditions = currentTriggers.triggers[triggerIndex].conditions;
+      if (!conditions) return;
+      const raw = el.value;
+      // If contains comma, treat as array
+      if (raw.includes(',')) {
+        conditions[condIndex].value = raw.split(',').map(v => {
+          const trimmed = v.trim();
+          const num = Number(trimmed);
+          return isNaN(num) ? trimmed : num;
+        });
+      } else {
+        const num = Number(raw);
+        conditions[condIndex].value = isNaN(num) ? raw : num;
+      }
+    });
+  });
+
+  // Delete condition buttons
+  document.querySelectorAll('[data-delete-trigger-condition]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const [triggerStr, condStr] = el.dataset.deleteTriggerCondition!.split(':');
+    const triggerIndex = parseInt(triggerStr, 10);
+    const condIndex = parseInt(condStr, 10);
+    el.addEventListener('click', () => {
+      currentTriggers.triggers[triggerIndex].conditions?.splice(condIndex, 1);
+      render();
+    });
+  });
+
+  // Add condition buttons
+  document.querySelectorAll('[data-add-trigger-condition]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const triggerIndex = parseInt(el.dataset.addTriggerCondition!, 10);
+    el.addEventListener('click', () => {
+      const trigger = currentTriggers.triggers[triggerIndex];
+      if (!trigger.conditions) trigger.conditions = [];
+      trigger.conditions.push({ capture: '', operator: 'eq', value: '' });
+      render();
+      // Focus the new condition's capture dropdown
+      const newCondIndex = trigger.conditions.length - 1;
+      const captureSelect = document.querySelector(`[data-trigger-cond-capture="${triggerIndex}:${newCondIndex}"]`) as HTMLSelectElement;
+      if (captureSelect) captureSelect.focus();
+    });
+  });
+
+  // Action type selects
+  document.querySelectorAll('[data-trigger-action-type]').forEach((input) => {
+    const el = input as HTMLSelectElement;
+    const [triggerStr, actionStr] = el.dataset.triggerActionType!.split(':');
+    const triggerIndex = parseInt(triggerStr, 10);
+    const actionIndex = parseInt(actionStr, 10);
+    el.addEventListener('change', () => {
+      const actions = currentTriggers.triggers[triggerIndex].actions;
+      if (actions) {
+        const oldType = actions[actionIndex].type;
+        const newType = el.value as any;
+        actions[actionIndex].type = newType;
+        // Clear value when switching between trigger/non-trigger types (input changes)
+        const wasTriggerType = oldType === 'disable_trigger' || oldType === 'enable_trigger';
+        const isTriggerType = newType === 'disable_trigger' || newType === 'enable_trigger';
+        if (wasTriggerType !== isTriggerType) {
+          actions[actionIndex].value = '';
+          render(); // Re-render to switch between input and select
+        }
+      }
+    });
+  });
+
+  // Action value inputs (can be input or select)
+  document.querySelectorAll('[data-trigger-action-value]').forEach((input) => {
+    const el = input as HTMLInputElement | HTMLSelectElement;
+    const [triggerStr, actionStr] = el.dataset.triggerActionValue!.split(':');
+    const triggerIndex = parseInt(triggerStr, 10);
+    const actionIndex = parseInt(actionStr, 10);
+    const eventType = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(eventType, () => {
+      const actions = currentTriggers.triggers[triggerIndex].actions;
+      if (actions) actions[actionIndex].value = el.value;
+    });
+  });
+
+  // Delete action buttons
+  document.querySelectorAll('[data-delete-trigger-action]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const [triggerStr, actionStr] = el.dataset.deleteTriggerAction!.split(':');
+    const triggerIndex = parseInt(triggerStr, 10);
+    const actionIndex = parseInt(actionStr, 10);
+    el.addEventListener('click', () => {
+      currentTriggers.triggers[triggerIndex].actions?.splice(actionIndex, 1);
+      render();
+    });
+  });
+
+  // Add action buttons
+  document.querySelectorAll('[data-add-trigger-action]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const triggerIndex = parseInt(el.dataset.addTriggerAction!, 10);
+    el.addEventListener('click', () => {
+      const trigger = currentTriggers.triggers[triggerIndex];
+      if (!trigger.actions) trigger.actions = [];
+      trigger.actions.push({ type: 'send', value: '' });
+      render();
+      // Focus the new action's value input
+      const newActionIndex = trigger.actions.length - 1;
+      const valueInput = document.querySelector(`[data-trigger-action-value="${triggerIndex}:${newActionIndex}"]`) as HTMLInputElement;
+      if (valueInput) valueInput.focus();
+    });
+  });
+
+  // Delete trigger buttons
+  document.querySelectorAll('[data-delete-trigger]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const triggerIndex = parseInt(el.dataset.deleteTrigger!, 10);
+    el.addEventListener('click', () => {
+      currentTriggers.triggers.splice(triggerIndex, 1);
+      render();
+    });
+  });
+
+  // Add trigger button
+  document.getElementById('add-trigger-btn')?.addEventListener('click', () => {
+    currentTriggers.triggers.push({
+      name: '',
+      patternGroups: [],
+      actions: [{ type: 'send', value: '' }],
+      enabled: true,
+    });
+    render();
+    // Focus the new trigger's name input
+    const newIndex = currentTriggers.triggers.length - 1;
+    const nameInput = document.querySelector(`[data-trigger-name="${newIndex}"]`) as HTMLInputElement;
+    if (nameInput) {
+      nameInput.focus();
+      nameInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
 }
 
 function bindTabs() {
@@ -717,6 +1156,9 @@ function bindInputs() {
 
   // Notifications inputs (notifications tab)
   bindNotificationsInputs();
+
+  // Trigger inputs (triggers tab)
+  bindTriggerInputs();
 }
 
 function bindPaneInputs() {
@@ -902,6 +1344,21 @@ function bindPatternInputs() {
         // Rename the group
         currentPatterns.groups[newName] = currentPatterns.groups[originalName];
         delete currentPatterns.groups[originalName];
+
+        // Update all triggers that reference this group
+        for (const trigger of currentTriggers.triggers) {
+          const idx = trigger.patternGroups.indexOf(originalName);
+          if (idx !== -1) {
+            trigger.patternGroups[idx] = newName;
+          }
+        }
+
+        // Update notifications that reference this group
+        const notifyIdx = currentNotifications.groups.indexOf(originalName);
+        if (notifyIdx !== -1) {
+          currentNotifications.groups[notifyIdx] = newName;
+        }
+
         render();
       } else if (!newName || currentPatterns.groups[newName]) {
         // Invalid or duplicate name, revert
@@ -917,6 +1374,15 @@ function bindPatternInputs() {
 
     el.addEventListener('click', () => {
       delete currentPatterns.groups[groupName];
+
+      // Remove from all triggers that reference this group
+      for (const trigger of currentTriggers.triggers) {
+        trigger.patternGroups = trigger.patternGroups.filter(g => g !== groupName);
+      }
+
+      // Remove from notifications
+      currentNotifications.groups = currentNotifications.groups.filter(g => g !== groupName);
+
       render();
     });
   });
@@ -997,6 +1463,56 @@ function bindPatternInputs() {
     // Initial validation state
     updateContinuationValidation();
   }
+
+  // Pattern tester
+  document.getElementById('pattern-test-btn')?.addEventListener('click', () => {
+    const testInput = document.getElementById('pattern-test-input') as HTMLInputElement;
+    const resultDiv = document.getElementById('pattern-test-result');
+
+    if (!testInput || !resultDiv) return;
+
+    const testString = testInput.value;
+    if (!testString) {
+      resultDiv.innerHTML = '<span class="test-error">Please enter a test string</span>';
+      return;
+    }
+
+    const results: string[] = [];
+
+    for (const [groupName, patterns] of Object.entries(currentPatterns.groups)) {
+      for (let i = 0; i < patterns.length; i++) {
+        const pattern = patterns[i];
+        if (!pattern) continue;
+
+        try {
+          const regex = new RegExp(pattern);
+          const match = regex.exec(testString);
+
+          if (match) {
+            let html = `<div class="test-match-item">
+              <div class="test-match-header"><span class="test-success">${escapeHtml(groupName)}</span> pattern ${i + 1} matched</div>`;
+            if (match.groups && Object.keys(match.groups).length > 0) {
+              html += '<div class="test-captures-grid">';
+              for (const [name, value] of Object.entries(match.groups)) {
+                html += `<div class="test-capture"><span class="test-capture-name">${escapeHtml(name)}</span><span class="test-capture-value">${escapeHtml(value || '')}</span></div>`;
+              }
+              html += '</div>';
+            }
+            html += '</div>';
+            results.push(html);
+          }
+        } catch {
+          results.push(`<div class="test-match-item"><span class="test-error">${escapeHtml(groupName)}</span> pattern ${i + 1}: invalid regex</div>`);
+        }
+      }
+    }
+
+    if (results.length === 0) {
+      resultDiv.innerHTML = '<span class="test-no-match">No patterns matched</span>';
+    } else {
+      resultDiv.innerHTML = results.join('');
+    }
+  });
 }
 
 function bindNotificationsInputs() {
@@ -1137,6 +1653,7 @@ function bindButtons() {
       saveAliases(currentAliases),
       savePatternsConfig(currentPatterns),
       saveNotificationsConfig(currentNotifications),
+      saveTriggersConfig(currentTriggers),
     ];
     if (currentPanesConfig) {
       saves.push(savePanesConfig(currentPanesConfig));
@@ -1147,6 +1664,7 @@ function bindButtons() {
     await emitPanesConfigChange();
     await emitPatternsConfigChange();
     await emitNotificationsConfigChange();
+    await emitTriggersConfigChange();
     getCurrentWindow().close();
   });
 
@@ -1157,18 +1675,9 @@ function bindButtons() {
   });
 
   document.getElementById('reset-btn')?.addEventListener('click', async () => {
-    if (activeTab === 'terminal') {
-      currentSettings = await resetSettings();
-      emitSettingsChange();
-    } else if (activeTab === 'config') {
-      currentConfig = await resetConfig();
-    } else if (activeTab === 'aliases') {
-      currentAliases = await resetAliases();
-    } else if (activeTab === 'patterns') {
-      currentPatterns = await resetPatternsConfig();
-    } else if (activeTab === 'notifications') {
-      currentNotifications = await resetNotificationsConfig();
-    }
+    // Reset only applies to Terminal settings
+    currentSettings = await resetSettings();
+    emitSettingsChange();
     // Note: No reset for panes - they need the YAML file
     render();
   });
@@ -1194,6 +1703,10 @@ async function emitPatternsConfigChange() {
 
 async function emitNotificationsConfigChange() {
   await emit('notifications-config-changed', currentNotifications);
+}
+
+async function emitTriggersConfigChange() {
+  await emit('triggers-config-changed', currentTriggers);
 }
 
 // Handle Escape key to close

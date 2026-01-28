@@ -696,3 +696,183 @@
   border-color: rgba(74, 158, 255, 0.4);
   color: #4a9eff;
 }
+
+/* Triggers tab */
+.settings-trigger-subsection {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings-trigger-subsection:first-of-type {
+  margin-top: 8px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.settings-trigger-subsection > .settings-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.settings-trigger-conditions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.settings-trigger-condition-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-trigger-condition-capture {
+  flex: 1;
+  min-width: 100px;
+}
+
+.settings-trigger-condition-operator {
+  width: 90px;
+}
+
+.settings-trigger-condition-value {
+  flex: 2;
+  min-width: 120px;
+}
+
+.settings-trigger-actions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.settings-trigger-action-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-trigger-action-type {
+  width: 140px;
+  flex-shrink: 0;
+}
+
+.settings-trigger-action-value {
+  flex: 1;
+}
+
+/* Pattern tester */
+.settings-pattern-tester .settings-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-pattern-tester .settings-row .settings-input {
+  flex: 1;
+}
+
+.settings-pattern-test-result {
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  font-family: 'MonaspaceNeon', monospace;
+  font-size: 13px;
+  min-height: 20px;
+}
+
+.settings-pattern-test-result:empty {
+  display: none;
+}
+
+.settings-pattern-test-result .test-success {
+  color: #4ade80;
+  font-weight: 500;
+}
+
+.settings-pattern-test-result .test-no-match {
+  color: #f97316;
+}
+
+.settings-pattern-test-result .test-error {
+  color: #ef4444;
+}
+
+.settings-pattern-test-result code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.settings-pattern-test-result .test-match-item {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings-pattern-test-result .test-match-item:last-child {
+  border-bottom: none;
+}
+
+.settings-pattern-test-result .test-match-header {
+  margin-bottom: 8px;
+}
+
+.settings-pattern-test-result .test-captures-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+@media (max-width: 700px) {
+  .settings-pattern-test-result .test-captures-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.settings-pattern-test-result .test-capture {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+}
+
+.settings-pattern-test-result .test-capture-name {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+}
+
+.settings-pattern-test-result .test-capture-value {
+  color: #4ade80;
+  font-weight: 500;
+}
+
+/* Trigger Patterns tab */
+.settings-trigger-pattern-id {
+  width: 120px;
+  flex-shrink: 0;
+  font-family: 'MonaspaceNeon', 'SF Mono', monospace;
+  font-size: 12px;
+}
+
+.settings-trigger-pattern-desc {
+  margin-top: 8px;
+}
+
+.settings-trigger-pattern-desc .settings-input {
+  width: 100%;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.settings-pattern-test-result .test-pattern-id {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  font-weight: 400;
+}

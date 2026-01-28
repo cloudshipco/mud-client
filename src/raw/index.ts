@@ -15,6 +15,9 @@ import { PatternsConfigStore } from "../patterns/PatternsConfigStore";
 import { MessageClassifier } from "../messages/MessageClassifier";
 import { Updater } from "../update/Updater";
 import { MacroManager } from "../macro/MacroManager";
+import { TriggerConfigStore } from "../triggers/TriggerConfigStore";
+import type { TriggerAction } from "../triggers/TriggerConfigStore";
+import { TriggerEngine } from "../triggers/TriggerEngine";
 
 // GUI mode JSON event types
 export interface GuiPaneMessage {
@@ -116,6 +119,8 @@ class MudClient {
   private classifier: MessageClassifier;
   private updater: Updater;
   private macroManager: MacroManager;
+  private triggerConfigStore: TriggerConfigStore;
+  private triggerEngine: TriggerEngine;
 
   // Total height of all enabled panes (0 if none enabled)
   private get totalPaneHeight(): number {
@@ -189,6 +194,8 @@ class MudClient {
     this.classifier = new MessageClassifier(this.patternsConfig.getConfig());
     this.updater = new Updater();
     this.macroManager = new MacroManager();
+    this.triggerConfigStore = new TriggerConfigStore();
+    this.triggerEngine = new TriggerEngine(this.triggerConfigStore, this.patternsConfig.getConfig().groups);
 
     // Set GUI mode on components that need it
     this.menu.setGuiMode(guiMode);
@@ -701,9 +708,11 @@ class MudClient {
       this.debugLogStream.write(`---\n`);
     }
 
-    // Reload patterns and pane configs if changed (pick up GUI changes)
-    this.classifier.updateIfChanged(this.patternsConfig.getConfig());
+    // Reload patterns, pane, and trigger configs if changed (pick up GUI changes)
+    const patternsConfig = this.patternsConfig.getConfig();
+    this.classifier.updateIfChanged(patternsConfig);
     this.paneManager.updateConfigs(this.paneConfig.getPanes());
+    this.triggerEngine.updateIfChanged(this.triggerConfigStore.getConfig(), patternsConfig.groups);
 
     // Classify and route lines
     const lines = toFlush.split("\n");
@@ -711,10 +720,17 @@ class MudClient {
     const panesEnabled = this.totalPaneHeight > 0;
 
     for (const line of lines) {
+      // Strip ANSI codes for classification and triggers
+      const stripped = line.replace(/\x1b\[[0-9;]*m/g, "");
+
+      // Evaluate triggers against every line
+      const triggerActions = this.triggerEngine.evaluate(stripped);
+      for (const action of triggerActions) {
+        this.executeTriggerAction(action);
+      }
+
       // Route to panes if any are enabled
       if (panesEnabled) {
-        // Strip ANSI codes for classification only
-        const stripped = line.replace(/\x1b\[[0-9;]*m/g, "");
         const classified = this.classifier.classify(stripped);
 
         // Route to matching panes - if consumed, skip main output
@@ -783,9 +799,11 @@ class MudClient {
 
   // GUI mode output: emit JSON events for panes and main content
   private flushOutputGui(toFlush: string): void {
-    // Reload patterns and pane configs if changed (pick up GUI changes)
-    this.classifier.updateIfChanged(this.patternsConfig.getConfig());
+    // Reload patterns, pane, and trigger configs if changed (pick up GUI changes)
+    const patternsConfig = this.patternsConfig.getConfig();
+    this.classifier.updateIfChanged(patternsConfig);
     this.paneManager.updateConfigs(this.paneConfig.getPanes());
+    this.triggerEngine.updateIfChanged(this.triggerConfigStore.getConfig(), patternsConfig.groups);
 
     const lines = toFlush.split("\n");
     const mainLines: { text: string; ansi: string; type: string }[] = [];
@@ -794,6 +812,13 @@ class MudClient {
     for (const line of lines) {
       // Strip ANSI codes for classification
       const stripped = line.replace(/\x1b\[[0-9;]*m/g, "");
+
+      // Evaluate triggers against every line
+      const triggerActions = this.triggerEngine.evaluate(stripped);
+      for (const action of triggerActions) {
+        this.executeTriggerAction(action);
+      }
+
       const classified = this.classifier.classify(stripped);
 
       // Check if any pane accepts this message
@@ -2054,6 +2079,36 @@ class MudClient {
     process.stdout.write(CURSOR_TO(termHeight, 1) + CLEAR_LINE + line);
   }
 
+  private executeTriggerAction(action: TriggerAction): void {
+    switch (action.type) {
+      case "send":
+        this.handleCommand(action.value, true);
+        break;
+      case "disable_trigger":
+        // Persist to disk and update runtime
+        if (this.triggerConfigStore.setEnabled(action.value, false)) {
+          this.triggerEngine.setEnabled(action.value, false);
+          this.echo(`Trigger '${action.value}' disabled.`);
+        }
+        break;
+      case "enable_trigger":
+        // Persist to disk and update runtime
+        if (this.triggerConfigStore.setEnabled(action.value, true)) {
+          this.triggerEngine.setEnabled(action.value, true);
+          this.echo(`Trigger '${action.value}' enabled.`);
+        }
+        break;
+      case "notify":
+        // GUI handles notifications via events; CLI just echoes
+        if (this.guiMode) {
+          this.emitGuiEvent({ event: "notification", title: "Trigger", body: action.value });
+        } else {
+          this.echo(`[Notify] ${action.value}`);
+        }
+        break;
+    }
+  }
+
   private handleCommand(cmd: string, isChained = false): void {
     const trimmed = cmd.trim();
 
@@ -2172,6 +2227,7 @@ class MudClient {
         this.echo("  /unalias <name> - Remove alias");
         this.echo("  /aliases - List all aliases");
         this.echo("  /macro - Record and playback command sequences");
+        this.echo("  /trigger - Manage triggers (list, enable, disable, reload)");
         this.echo("  /config - Show all settings");
         this.echo("  /set <key> <value> - Change a setting");
         this.echo("  /clear - Clear screen");
@@ -2425,6 +2481,51 @@ class MudClient {
         } else {
           this.echo(`Unknown macro subcommand: ${subcommand}`);
           this.echo("Use /macro help for available commands.");
+        }
+      } else if (command === "trigger" || command === "triggers") {
+        const subcommand = parts[1]?.toLowerCase();
+        const triggerName = parts[2];
+
+        if (!subcommand || subcommand === "help") {
+          this.echo("Trigger commands:");
+          this.echo("  /trigger list - List all triggers");
+          this.echo("  /trigger enable <name> - Enable a trigger");
+          this.echo("  /trigger disable <name> - Disable a trigger");
+          this.echo("  /trigger reload - Reload triggers from disk");
+        } else if (subcommand === "list" || subcommand === "ls") {
+          const triggers = this.triggerEngine.listTriggers();
+          if (triggers.length === 0) {
+            this.echo("No triggers defined. Add triggers to ~/.config/mud-client/triggers.yaml");
+          } else {
+            this.echo("Triggers:");
+            for (const t of triggers) {
+              const status = t.enabled ? "enabled" : "disabled";
+              this.echo(`  ${t.name} [${status}] (${t.patternCount} patterns)`);
+            }
+          }
+        } else if (subcommand === "enable") {
+          if (!triggerName) {
+            this.echo("Usage: /trigger enable <name>");
+          } else if (this.triggerEngine.setEnabled(triggerName, true)) {
+            this.echo(`Trigger '${triggerName}' enabled.`);
+          } else {
+            this.echo(`Trigger '${triggerName}' not found.`);
+          }
+        } else if (subcommand === "disable") {
+          if (!triggerName) {
+            this.echo("Usage: /trigger disable <name>");
+          } else if (this.triggerEngine.setEnabled(triggerName, false)) {
+            this.echo(`Trigger '${triggerName}' disabled.`);
+          } else {
+            this.echo(`Trigger '${triggerName}' not found.`);
+          }
+        } else if (subcommand === "reload") {
+          this.triggerEngine.reload();
+          const triggers = this.triggerEngine.listTriggers();
+          this.echo(`Reloaded ${triggers.length} trigger(s) from disk.`);
+        } else {
+          this.echo(`Unknown trigger subcommand: ${subcommand}`);
+          this.echo("Use /trigger help for available commands.");
         }
       } else {
         this.echo(`Unknown command: ${command}`);
