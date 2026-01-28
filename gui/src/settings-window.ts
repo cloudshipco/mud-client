@@ -336,9 +336,6 @@ function buildAliasesSection(): string {
         <button class="settings-btn settings-btn-secondary" id="add-alias-btn">Add</button>
       </div>
     </div>
-    <div class="settings-note">
-      Changes require restarting the client to take effect.
-    </div>
   `;
 }
 

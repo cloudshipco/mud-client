@@ -5,7 +5,6 @@ import { homedir } from "os";
 export type AliasMap = Record<string, string>;
 
 export class AliasStore {
-  private aliases: AliasMap;
   private configPath: string;
 
   constructor() {
@@ -14,7 +13,6 @@ export class AliasStore {
       mkdirSync(baseDir, { recursive: true });
     }
     this.configPath = join(baseDir, "aliases.json");
-    this.aliases = this.load();
   }
 
   private load(): AliasMap {
@@ -30,33 +28,35 @@ export class AliasStore {
     }
   }
 
-  private save(): void {
-    writeFileSync(this.configPath, JSON.stringify(this.aliases, null, 2));
+  private save(aliases: AliasMap): void {
+    writeFileSync(this.configPath, JSON.stringify(aliases, null, 2));
   }
 
   set(name: string, expansion: string): void {
-    this.aliases[name] = expansion;
-    this.save();
+    const aliases = this.load();
+    aliases[name] = expansion;
+    this.save(aliases);
   }
 
   remove(name: string): boolean {
-    if (!(name in this.aliases)) {
+    const aliases = this.load();
+    if (!(name in aliases)) {
       return false;
     }
-    delete this.aliases[name];
-    this.save();
+    delete aliases[name];
+    this.save(aliases);
     return true;
   }
 
   get(name: string): string | undefined {
-    return this.aliases[name];
+    return this.load()[name];
   }
 
   getAll(): AliasMap {
-    return { ...this.aliases };
+    return this.load();
   }
 
   has(name: string): boolean {
-    return name in this.aliases;
+    return name in this.load();
   }
 }

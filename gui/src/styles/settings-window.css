@@ -107,6 +107,11 @@
   color: rgba(255, 255, 255, 0.4);
 }
 
+/* Description as section intro (e.g., aliases) needs spacing below */
+.settings-section > .settings-description {
+  margin-bottom: 12px;
+}
+
 /* Inputs */
 .settings-input,
 .settings-select {
