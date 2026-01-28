@@ -27,6 +27,7 @@ import "./styles/panes.css";
 
 let settingsWindow: WebviewWindow | null = null;
 const floatingPanes: Map<string, WebviewWindow> = new Map();
+const floatingPanesClosingProgrammatically: Set<string> = new Set();
 let currentPanesConfig: PanesConfig | null = null;
 
 // Pending update held until user explicitly runs /update
@@ -67,8 +68,15 @@ async function openFloatingPane(paneConfig: PaneConfig) {
   const floatingWindow = new WebviewWindow(windowLabel, windowOptions);
   floatingPanes.set(paneConfig.id, floatingWindow);
 
-  floatingWindow.once("tauri://destroyed", () => {
+  floatingWindow.once("tauri://destroyed", async () => {
     floatingPanes.delete(paneConfig.id);
+    // If the user closed the window (not a programmatic close), revert to docked
+    if (!floatingPanesClosingProgrammatically.delete(paneConfig.id)) {
+      if (currentPanesConfig) {
+        currentPanesConfig = updatePane(currentPanesConfig, paneConfig.id, { position: 'top' });
+        try { await savePanesConfig(currentPanesConfig); } catch { /* non-critical */ }
+      }
+    }
   });
 
   // Persist position on move/resize
@@ -84,10 +92,12 @@ async function openFloatingPane(paneConfig: PaneConfig) {
 async function closeFloatingPane(paneId: string) {
   const floatingWindow = floatingPanes.get(paneId);
   if (floatingWindow) {
+    floatingPanesClosingProgrammatically.add(paneId);
     try {
       await floatingWindow.close();
     } catch {
       // already closed
+      floatingPanesClosingProgrammatically.delete(paneId);
     }
     floatingPanes.delete(paneId);
   }
