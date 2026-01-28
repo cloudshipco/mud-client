@@ -36,8 +36,8 @@ async function openSettings() {
   settingsWindow = new WebviewWindow("settings", {
     url: "settings.html",
     title: "Settings",
-    width: 480,
-    height: 580,
+    width: 560,
+    height: 820,
     resizable: true,
     minimizable: false,
     center: true,
