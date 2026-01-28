@@ -55,6 +55,8 @@ import {
   TriggerDefinition,
   TriggerCondition,
   TriggerAction,
+  TriggerActionType,
+  ConditionOperator,
   CONDITION_OPERATORS,
   ACTION_TYPES,
   loadTriggersConfig,
@@ -66,6 +68,7 @@ import {
   requestPermission,
   sendNotification,
 } from '@tauri-apps/plugin-notification';
+import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager';
 
 type TabId = 'terminal' | 'config' | 'panes' | 'aliases' | 'patterns' | 'notifications' | 'triggers';
 
@@ -151,6 +154,556 @@ let originalNotifications: NotificationsConfig = { enabled: true, groups: [] };
 let currentTriggers: TriggersConfig = { triggers: [] };
 let originalTriggers: TriggersConfig = { triggers: [] };
 let activeTab: TabId = 'terminal';
+
+// Conflict resolution state for import
+type ConflictResolution = 'replace' | 'rename' | 'skip';
+interface ImportConflict {
+  type: 'pattern' | 'trigger';
+  name: string;
+  existing: unknown;
+  incoming: unknown;
+}
+let pendingConflicts: ImportConflict[] = [];
+let currentConflictIndex = 0;
+let conflictCallback: ((resolution: ConflictResolution) => void) | null = null;
+
+/**
+ * Escape YAML string (double single quotes)
+ */
+function escapeYamlStr(str: string): string {
+  return str.replace(/'/g, "''");
+}
+
+/**
+ * Generate YAML for a single pattern group (for clipboard export)
+ */
+function patternGroupToYaml(groupName: string, patterns: string[]): string {
+  const lines: string[] = ['groups:'];
+  lines.push(`  ${groupName}:`);
+  if (patterns.length === 0) {
+    lines.push('    []');
+  } else {
+    for (const pattern of patterns) {
+      lines.push(`    - '${escapeYamlStr(pattern)}'`);
+    }
+  }
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * Generate YAML for a single trigger (for clipboard export)
+ */
+function triggerToYaml(trigger: TriggerDefinition): string {
+  const lines: string[] = ['triggers:'];
+  lines.push(`  - name: '${escapeYamlStr(trigger.name)}'`);
+
+  lines.push('    patternGroups:');
+  if (trigger.patternGroups.length === 0) {
+    lines.push('      []');
+  } else {
+    for (const group of trigger.patternGroups) {
+      lines.push(`      - '${escapeYamlStr(group)}'`);
+    }
+  }
+
+  const validConditions = (trigger.conditions || []).filter(c => c.capture?.trim());
+  if (validConditions.length > 0) {
+    lines.push('    conditions:');
+    for (const condition of validConditions) {
+      lines.push(`      - capture: '${escapeYamlStr(condition.capture)}'`);
+      lines.push(`        operator: ${condition.operator}`);
+      if (Array.isArray(condition.value)) {
+        const items = condition.value.map(v =>
+          typeof v === 'number' ? String(v) : `'${escapeYamlStr(String(v))}'`
+        ).join(', ');
+        lines.push(`        value: [${items}]`);
+      } else if (typeof condition.value === 'number') {
+        lines.push(`        value: ${condition.value}`);
+      } else {
+        lines.push(`        value: '${escapeYamlStr(String(condition.value))}'`);
+      }
+    }
+  }
+
+  const validActions = (trigger.actions || []).filter(a => a.value?.trim());
+  if (validActions.length > 0) {
+    lines.push('    actions:');
+    for (const action of validActions) {
+      lines.push(`      - type: ${action.type}`);
+      lines.push(`        value: '${escapeYamlStr(action.value)}'`);
+    }
+  }
+
+  lines.push(`    enabled: ${trigger.enabled}`);
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * Parse YAML clipboard content to detect type and extract data
+ */
+function parseClipboardYaml(content: string): { type: 'patterns' | 'triggers' | 'unknown'; data: unknown } {
+  const trimmed = content.trim();
+
+  // Detect content type
+  if (trimmed.startsWith('groups:')) {
+    return { type: 'patterns', data: parsePatternGroupsYaml(content) };
+  } else if (trimmed.startsWith('triggers:')) {
+    return { type: 'triggers', data: parseTriggersYaml(content) };
+  }
+
+  return { type: 'unknown', data: null };
+}
+
+/**
+ * Parse pattern groups from YAML string
+ */
+function parsePatternGroupsYaml(content: string): Record<string, string[]> {
+  const groups: Record<string, string[]> = {};
+  const lines = content.split('\n');
+
+  let currentGroup: string | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === '' || trimmed.startsWith('#')) continue;
+
+    // Skip 'groups:' line
+    if (line.match(/^groups:\s*$/)) continue;
+
+    // Group name at 2-space indent
+    const groupMatch = line.match(/^  (\w[\w-]*):\s*$/);
+    if (groupMatch) {
+      currentGroup = groupMatch[1];
+      groups[currentGroup] = [];
+      continue;
+    }
+
+    // Pattern at 4-space indent
+    if (currentGroup) {
+      const patternMatch = line.match(/^\s{4}-\s*["']?(.+?)["']?\s*$/);
+      if (patternMatch) {
+        groups[currentGroup].push(patternMatch[1]);
+      }
+    }
+  }
+
+  return groups;
+}
+
+/**
+ * Parse triggers from YAML string
+ */
+function parseTriggersYaml(content: string): TriggerDefinition[] {
+  const triggers: TriggerDefinition[] = [];
+  const lines = content.split('\n');
+
+  let currentTrigger: Partial<TriggerDefinition> | null = null;
+  let listContext: 'patternGroups' | 'conditions' | 'actions' | null = null;
+  let currentCondition: Partial<TriggerCondition> | null = null;
+  let currentAction: Partial<TriggerAction> | null = null;
+  let conditionValueItems: (string | number)[] = [];
+
+  const finishCondition = () => {
+    if (currentCondition && currentTrigger) {
+      if (!currentTrigger.conditions) currentTrigger.conditions = [];
+      if (conditionValueItems.length > 0) {
+        currentCondition.value = conditionValueItems;
+        conditionValueItems = [];
+      }
+      currentTrigger.conditions.push(currentCondition as TriggerCondition);
+      currentCondition = null;
+    }
+  };
+
+  const finishAction = () => {
+    if (currentAction && currentTrigger) {
+      if (!currentTrigger.actions) currentTrigger.actions = [];
+      if (currentAction.type && currentAction.value !== undefined) {
+        currentTrigger.actions.push(currentAction as TriggerAction);
+      }
+      currentAction = null;
+    }
+  };
+
+  const finishTrigger = () => {
+    finishCondition();
+    finishAction();
+    if (currentTrigger && currentTrigger.name) {
+      triggers.push({
+        name: currentTrigger.name,
+        patternGroups: currentTrigger.patternGroups || [],
+        conditions: currentTrigger.conditions,
+        actions: currentTrigger.actions || [],
+        enabled: currentTrigger.enabled !== false,
+      });
+    }
+    currentTrigger = null;
+    listContext = null;
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === '' || trimmed.startsWith('#')) continue;
+
+    // Top level 'triggers:' key
+    if (line.match(/^triggers:\s*$/)) continue;
+
+    // New trigger item: "  - name: ..."
+    const newTriggerMatch = line.match(/^  - name:\s*["']?(.+?)["']?\s*$/);
+    if (newTriggerMatch) {
+      finishTrigger();
+      currentTrigger = { name: newTriggerMatch[1], patternGroups: [] };
+      listContext = null;
+      continue;
+    }
+
+    if (!currentTrigger) continue;
+
+    // Trigger properties at 4-space indent
+    const propMatch = line.match(/^    (\w+):\s*(.*)$/);
+    if (propMatch && !line.match(/^      /)) {
+      const [, key, rawValue] = propMatch;
+      const value = rawValue.replace(/^["']|["']$/g, '').trim();
+
+      switch (key) {
+        case 'patternGroups':
+          listContext = 'patternGroups';
+          continue;
+        case 'conditions':
+          listContext = 'conditions';
+          continue;
+        case 'actions':
+          listContext = 'actions';
+          continue;
+        case 'enabled':
+          currentTrigger.enabled = value !== 'false';
+          listContext = null;
+          continue;
+      }
+    }
+
+    // List items at 6-space indent
+    if (listContext === 'patternGroups') {
+      const groupMatch = line.match(/^\s{6}-\s*["']?(.+?)["']?\s*$/);
+      if (groupMatch) {
+        currentTrigger.patternGroups!.push(groupMatch[1]);
+        continue;
+      }
+    }
+
+    if (listContext === 'conditions') {
+      // New condition: "      - capture: ..."
+      const condStartMatch = line.match(/^\s{6}- capture:\s*["']?(.+?)["']?\s*$/);
+      if (condStartMatch) {
+        finishCondition();
+        currentCondition = { capture: condStartMatch[1] };
+        conditionValueItems = [];
+        continue;
+      }
+
+      if (currentCondition) {
+        const operatorMatch = line.match(/^\s{8}operator:\s*["']?(.+?)["']?\s*$/);
+        if (operatorMatch) {
+          currentCondition.operator = operatorMatch[1] as ConditionOperator;
+          continue;
+        }
+
+        const inlineArrayMatch = line.match(/^\s{8}value:\s*\[(.+)\]\s*$/);
+        if (inlineArrayMatch) {
+          currentCondition.value = inlineArrayMatch[1]
+            .split(',')
+            .map(v => v.trim().replace(/^["']|["']$/g, ''))
+            .map(v => { const n = Number(v); return isNaN(n) ? v : n; });
+          continue;
+        }
+
+        const scalarMatch = line.match(/^\s{8}value:\s*["']?(.+?)["']?\s*$/);
+        if (scalarMatch) {
+          const raw = scalarMatch[1];
+          const num = Number(raw);
+          currentCondition.value = isNaN(num) ? raw : num;
+          continue;
+        }
+
+        if (line.match(/^\s{8}value:\s*$/)) {
+          conditionValueItems = [];
+          continue;
+        }
+
+        const valueItemMatch = line.match(/^\s{10}-\s*["']?(.+?)["']?\s*$/);
+        if (valueItemMatch) {
+          const raw = valueItemMatch[1];
+          const num = Number(raw);
+          conditionValueItems.push(isNaN(num) ? raw : num);
+          continue;
+        }
+      }
+    }
+
+    if (listContext === 'actions') {
+      const actionStartMatch = line.match(/^\s{6}- type:\s*["']?(.+?)["']?\s*$/);
+      if (actionStartMatch) {
+        finishAction();
+        currentAction = { type: actionStartMatch[1] as TriggerActionType };
+        continue;
+      }
+
+      if (currentAction) {
+        const valueMatch = line.match(/^\s{8}value:\s*["']?(.+?)["']?\s*$/);
+        if (valueMatch) {
+          currentAction.value = valueMatch[1];
+          continue;
+        }
+      }
+    }
+  }
+
+  finishTrigger();
+  return triggers;
+}
+
+/**
+ * Copy pattern group to clipboard
+ */
+async function copyPatternGroup(groupName: string): Promise<void> {
+  const patterns = currentPatterns.groups[groupName];
+  if (!patterns) return;
+
+  const yaml = patternGroupToYaml(groupName, patterns);
+  await writeText(yaml);
+  showCopyFeedback(`Copied "${groupName}" to clipboard`);
+}
+
+/**
+ * Copy trigger to clipboard
+ */
+async function copyTrigger(triggerIndex: number): Promise<void> {
+  const trigger = currentTriggers.triggers[triggerIndex];
+  if (!trigger) return;
+
+  const yaml = triggerToYaml(trigger);
+  await writeText(yaml);
+  showCopyFeedback(`Copied "${trigger.name || 'trigger'}" to clipboard`);
+}
+
+/**
+ * Show temporary feedback message
+ */
+function showCopyFeedback(message: string): void {
+  // Create feedback element
+  const feedback = document.createElement('div');
+  feedback.className = 'settings-copy-feedback';
+  feedback.textContent = message;
+  document.body.appendChild(feedback);
+
+  // Animate and remove
+  setTimeout(() => feedback.classList.add('show'), 10);
+  setTimeout(() => {
+    feedback.classList.remove('show');
+    setTimeout(() => feedback.remove(), 200);
+  }, 1500);
+}
+
+/**
+ * Generate a unique name by appending -1, -2, etc.
+ */
+function generateUniqueName(baseName: string, existingNames: string[]): string {
+  let counter = 1;
+  let newName = `${baseName}-${counter}`;
+  while (existingNames.includes(newName)) {
+    counter++;
+    newName = `${baseName}-${counter}`;
+  }
+  return newName;
+}
+
+/**
+ * Show conflict resolution modal
+ */
+function showConflictModal(conflict: ImportConflict): Promise<ConflictResolution> {
+  return new Promise((resolve) => {
+    conflictCallback = resolve;
+
+    const modal = document.createElement('div');
+    modal.className = 'settings-modal-overlay';
+    modal.id = 'conflict-modal';
+    modal.innerHTML = `
+      <div class="settings-modal">
+        <h3>Name Conflict</h3>
+        <p>${conflict.type === 'pattern' ? 'Pattern group' : 'Trigger'} <strong>"${escapeHtml(conflict.name)}"</strong> already exists.</p>
+        <p class="settings-description">What would you like to do?</p>
+        <div class="settings-modal-buttons">
+          <button class="settings-btn settings-btn-primary" data-conflict-action="replace">Replace Existing</button>
+          <button class="settings-btn settings-btn-secondary" data-conflict-action="rename">Import as Copy</button>
+          <button class="settings-btn settings-btn-secondary" data-conflict-action="skip">Skip</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Bind buttons
+    modal.querySelectorAll('[data-conflict-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = (btn as HTMLElement).dataset.conflictAction as ConflictResolution;
+        modal.remove();
+        if (conflictCallback) {
+          conflictCallback(action);
+          conflictCallback = null;
+        }
+      });
+    });
+  });
+}
+
+/**
+ * Import from clipboard for patterns tab
+ */
+async function importPatternsFromClipboard(): Promise<void> {
+  try {
+    const text = await readText();
+    if (!text || !text.trim()) {
+      showCopyFeedback('Clipboard is empty');
+      return;
+    }
+
+    const parsed = parseClipboardYaml(text);
+
+    if (parsed.type !== 'patterns') {
+      showCopyFeedback('Clipboard does not contain pattern groups');
+      return;
+    }
+
+    const importedGroups = parsed.data as Record<string, string[]>;
+    const groupNames = Object.keys(importedGroups);
+
+    if (groupNames.length === 0) {
+      showCopyFeedback('No pattern groups found');
+      return;
+    }
+
+    let imported = 0;
+    let skipped = 0;
+
+    for (const name of groupNames) {
+      const patterns = importedGroups[name];
+
+      if (currentPatterns.groups[name]) {
+        // Conflict - ask user
+        const resolution = await showConflictModal({
+          type: 'pattern',
+          name,
+          existing: currentPatterns.groups[name],
+          incoming: patterns,
+        });
+
+        switch (resolution) {
+          case 'replace':
+            currentPatterns.groups[name] = patterns;
+            imported++;
+            break;
+          case 'rename':
+            const newName = generateUniqueName(name, Object.keys(currentPatterns.groups));
+            currentPatterns.groups[newName] = patterns;
+            imported++;
+            break;
+          case 'skip':
+            skipped++;
+            break;
+        }
+      } else {
+        // No conflict - just import
+        currentPatterns.groups[name] = patterns;
+        imported++;
+      }
+    }
+
+    render();
+    const msg = skipped > 0
+      ? `Imported ${imported} group(s), skipped ${skipped}`
+      : `Imported ${imported} group(s)`;
+    showCopyFeedback(msg);
+  } catch (err) {
+    console.error('Import error:', err);
+    showCopyFeedback('Failed to import from clipboard');
+  }
+}
+
+/**
+ * Import from clipboard for triggers tab
+ */
+async function importTriggersFromClipboard(): Promise<void> {
+  try {
+    const text = await readText();
+    if (!text || !text.trim()) {
+      showCopyFeedback('Clipboard is empty');
+      return;
+    }
+
+    const parsed = parseClipboardYaml(text);
+
+    if (parsed.type !== 'triggers') {
+      showCopyFeedback('Clipboard does not contain triggers');
+      return;
+    }
+
+    const importedTriggers = parsed.data as TriggerDefinition[];
+
+    if (importedTriggers.length === 0) {
+      showCopyFeedback('No triggers found');
+      return;
+    }
+
+    let imported = 0;
+    let skipped = 0;
+    const existingNames = currentTriggers.triggers.map(t => t.name);
+
+    for (const trigger of importedTriggers) {
+      const existingIndex = currentTriggers.triggers.findIndex(t => t.name === trigger.name);
+
+      if (existingIndex !== -1) {
+        // Conflict - ask user
+        const resolution = await showConflictModal({
+          type: 'trigger',
+          name: trigger.name,
+          existing: currentTriggers.triggers[existingIndex],
+          incoming: trigger,
+        });
+
+        switch (resolution) {
+          case 'replace':
+            currentTriggers.triggers[existingIndex] = trigger;
+            imported++;
+            break;
+          case 'rename':
+            const newName = generateUniqueName(trigger.name, existingNames);
+            trigger.name = newName;
+            existingNames.push(newName);
+            currentTriggers.triggers.push(trigger);
+            imported++;
+            break;
+          case 'skip':
+            skipped++;
+            break;
+        }
+      } else {
+        // No conflict - just import
+        currentTriggers.triggers.push(trigger);
+        existingNames.push(trigger.name);
+        imported++;
+      }
+    }
+
+    render();
+    const msg = skipped > 0
+      ? `Imported ${imported} trigger(s), skipped ${skipped}`
+      : `Imported ${imported} trigger(s)`;
+    showCopyFeedback(msg);
+  } catch (err) {
+    console.error('Import error:', err);
+    showCopyFeedback('Failed to import from clipboard');
+  }
+}
 
 async function init() {
   [currentSettings, currentConfig, currentPanesConfig, currentAliases, currentPatterns, currentNotifications, currentTriggers] = await Promise.all([
@@ -447,6 +1000,7 @@ function buildPatternsSection(): string {
         <div class="settings-pattern-group-header">
           <input type="text" class="settings-input settings-group-name-input" data-rename-group="${escapeHtml(groupName)}"
                  value="${escapeHtml(groupName)}" placeholder="Group name">
+          <button class="settings-btn settings-btn-icon settings-btn-copy" data-copy-pattern-group="${escapeHtml(groupName)}" title="Copy to clipboard">&#x2398;</button>
           <button class="settings-btn settings-btn-icon" data-delete-group="${escapeHtml(groupName)}" title="Delete group">\u00d7</button>
         </div>
         <div class="settings-patterns-list">
@@ -501,6 +1055,7 @@ function buildPatternsSection(): string {
       <div class="settings-add-group">
         <input type="text" class="settings-input" id="new-group-name" placeholder="New group name">
         <button class="settings-btn settings-btn-secondary" id="add-group-btn">+ Add Group</button>
+        <button class="settings-btn settings-btn-secondary" id="import-patterns-btn">Import from Clipboard</button>
       </div>
     </div>
 
@@ -679,6 +1234,7 @@ function buildTriggersSection(): string {
           <input type="text" class="settings-input settings-group-name-input"
                  data-trigger-name="${triggerIndex}"
                  value="${escapeHtml(trigger.name)}" placeholder="Trigger name">
+          <button class="settings-btn settings-btn-icon settings-btn-copy" data-copy-trigger="${triggerIndex}" title="Copy to clipboard">&#x2398;</button>
           <button class="settings-btn settings-btn-icon" data-delete-trigger="${triggerIndex}" title="Delete trigger">\u00d7</button>
         </div>
 
@@ -738,7 +1294,10 @@ function buildTriggersSection(): string {
     </div>
 
     <div class="settings-section">
-      <button class="settings-btn settings-btn-secondary" id="add-trigger-btn">+ Add Trigger</button>
+      <div class="settings-add-group">
+        <button class="settings-btn settings-btn-secondary" id="add-trigger-btn">+ Add Trigger</button>
+        <button class="settings-btn settings-btn-secondary" id="import-triggers-btn">Import from Clipboard</button>
+      </div>
     </div>
   `;
 }
@@ -955,6 +1514,18 @@ function bindTriggerInputs() {
       nameInput.focus();
       nameInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
+  });
+
+  // Copy trigger buttons
+  document.querySelectorAll('[data-copy-trigger]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const triggerIndex = parseInt(el.dataset.copyTrigger!, 10);
+    el.addEventListener('click', () => copyTrigger(triggerIndex));
+  });
+
+  // Import triggers from clipboard button
+  document.getElementById('import-triggers-btn')?.addEventListener('click', () => {
+    importTriggersFromClipboard();
   });
 }
 
@@ -1512,6 +2083,18 @@ function bindPatternInputs() {
     } else {
       resultDiv.innerHTML = results.join('');
     }
+  });
+
+  // Copy pattern group buttons
+  document.querySelectorAll('[data-copy-pattern-group]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const groupName = el.dataset.copyPatternGroup!;
+    el.addEventListener('click', () => copyPatternGroup(groupName));
+  });
+
+  // Import patterns from clipboard button
+  document.getElementById('import-patterns-btn')?.addEventListener('click', () => {
+    importPatternsFromClipboard();
   });
 }
 

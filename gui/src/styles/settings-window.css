@@ -442,6 +442,13 @@
   border-color: rgba(255, 100, 100, 0.3);
 }
 
+/* Copy button - different hover color */
+.settings-btn-icon.settings-btn-copy:hover {
+  background: rgba(74, 158, 255, 0.15);
+  color: #4a9eff;
+  border-color: rgba(74, 158, 255, 0.3);
+}
+
 /* Patterns section */
 .settings-patterns-list {
   display: flex;
@@ -875,4 +882,84 @@
   color: rgba(255, 255, 255, 0.5);
   font-size: 12px;
   font-weight: 400;
+}
+
+/* Copy feedback toast */
+.settings-copy-feedback {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(74, 158, 255, 0.95);
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.settings-copy-feedback.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Conflict resolution modal */
+.settings-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+  backdrop-filter: blur(4px);
+}
+
+.settings-modal {
+  background: #1e1e1e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.settings-modal h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  margin: 0 0 12px 0;
+}
+
+.settings-modal p {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0 0 8px 0;
+  line-height: 1.5;
+}
+
+.settings-modal p strong {
+  color: #4a9eff;
+}
+
+.settings-modal-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.settings-modal-buttons .settings-btn {
+  flex: 1;
+  min-width: 100px;
+  text-align: center;
 }
