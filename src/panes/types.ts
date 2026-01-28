@@ -13,11 +13,15 @@ export interface PaneFilter {
 export interface PaneConfig {
   id: string;
   enabled?: boolean; // Defaults to true
-  position: "top";
+  position: "top" | "floating";
   height: number;
   filter: PaneFilter;
   maxMessages?: number;
   passthrough?: boolean; // If true, message also appears in main output
+  // Floating window position persistence
+  width?: number;
+  x?: number;
+  y?: number;
 }
 
 // Root YAML config (panes.yaml)

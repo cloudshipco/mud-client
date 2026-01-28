@@ -307,6 +307,11 @@ function buildPanesSection(): string {
         </div>
         <div class="settings-pane-options">
           <div class="settings-pane-option">
+            <label class="settings-label">Float</label>
+            <input type="checkbox" class="settings-checkbox" data-pane-floating="${pane.id}"
+                   ${pane.position === 'floating' ? 'checked' : ''}>
+          </div>
+          <div class="settings-pane-option" ${pane.position === 'floating' ? 'style="opacity: 0.4; pointer-events: none;"' : ''}>
             <label class="settings-label">Height (lines)</label>
             <input type="number" class="settings-input" data-pane-height="${pane.id}"
                    value="${pane.height}" min="1" max="20" step="1">
@@ -723,6 +728,18 @@ function bindPaneInputs() {
     const paneId = el.dataset.paneEnabled!;
     el.addEventListener('change', () => {
       currentPanesConfig = updatePane(currentPanesConfig!, paneId, { enabled: el.checked });
+    });
+  });
+
+  // Floating checkboxes
+  document.querySelectorAll('[data-pane-floating]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const paneId = el.dataset.paneFloating!;
+    el.addEventListener('change', () => {
+      currentPanesConfig = updatePane(currentPanesConfig!, paneId, {
+        position: el.checked ? 'floating' : 'top',
+      });
+      render(); // Re-render to update height input visibility
     });
   });
 

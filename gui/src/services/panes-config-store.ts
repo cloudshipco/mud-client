@@ -15,11 +15,14 @@ export interface PaneFilter {
 export interface PaneConfig {
   id: string;
   enabled?: boolean;
-  position: 'top';
+  position: 'top' | 'floating';
   height: number;
   filter: PaneFilter;
   maxMessages?: number;
   passthrough?: boolean;
+  width?: number;
+  x?: number;
+  y?: number;
 }
 
 export interface PanesConfig {
@@ -104,7 +107,7 @@ function parseYaml(content: string): PanesConfig {
         currentPane.enabled = line.includes('true');
       } else if (line.match(/^\s{4}position:/)) {
         const match = line.match(/position:\s*["']?([^"'\s]+)["']?/);
-        if (match) currentPane.position = match[1] as 'top';
+        if (match) currentPane.position = match[1] as 'top' | 'floating';
       } else if (line.match(/^\s{4}height:/)) {
         const match = line.match(/height:\s*(\d+(?:\.\d+)?)/);
         if (match) currentPane.height = parseFloat(match[1]);
@@ -113,6 +116,15 @@ function parseYaml(content: string): PanesConfig {
         if (match) currentPane.maxMessages = parseInt(match[1], 10);
       } else if (line.match(/^\s{4}passthrough:/)) {
         currentPane.passthrough = line.includes('true');
+      } else if (line.match(/^\s{4}width:/)) {
+        const match = line.match(/width:\s*(\d+(?:\.\d+)?)/);
+        if (match) currentPane.width = parseFloat(match[1]);
+      } else if (line.match(/^\s{4}x:/)) {
+        const match = line.match(/x:\s*(-?\d+(?:\.\d+)?)/);
+        if (match) currentPane.x = parseFloat(match[1]);
+      } else if (line.match(/^\s{4}y:/)) {
+        const match = line.match(/y:\s*(-?\d+(?:\.\d+)?)/);
+        if (match) currentPane.y = parseFloat(match[1]);
       } else if (line.match(/^\s{4}filter:/)) {
         currentFilter = {};
       } else if (line.match(/^\s{6}(patterns|types):/)) {
@@ -178,6 +190,15 @@ function stringifyYaml(config: PanesConfig): string {
     if (pane.passthrough !== undefined) {
       lines.push(`    passthrough: ${pane.passthrough}`);
     }
+    if (pane.width !== undefined) {
+      lines.push(`    width: ${pane.width}`);
+    }
+    if (pane.x !== undefined) {
+      lines.push(`    x: ${pane.x}`);
+    }
+    if (pane.y !== undefined) {
+      lines.push(`    y: ${pane.y}`);
+    }
     lines.push('    filter:');
     if (pane.filter.patterns && pane.filter.patterns.length > 0) {
       lines.push(`      patterns: [${pane.filter.patterns.join(', ')}]`);
@@ -232,7 +253,7 @@ export async function savePanesConfig(config: PanesConfig): Promise<void> {
 export function updatePane(
   config: PanesConfig,
   paneId: string,
-  updates: Partial<Pick<PaneConfig, 'enabled' | 'height' | 'passthrough' | 'maxMessages'>>
+  updates: Partial<Pick<PaneConfig, 'enabled' | 'height' | 'passthrough' | 'maxMessages' | 'position' | 'width' | 'x' | 'y'>>
 ): PanesConfig {
   return {
     ...config,

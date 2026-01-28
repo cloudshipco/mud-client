@@ -20,6 +20,7 @@ export interface PaneRendererOptions {
   height: number; // Initial height in lines (can be fractional)
   minHeight?: number; // Minimum height in pixels
   onResize?: (paneId: string, newHeight: number) => void;
+  isFloating?: boolean; // If true, fills parent and hides resize handle
 }
 
 const LINE_HEIGHT = 20; // Approximate pixels per line
@@ -44,8 +45,14 @@ export class PaneRenderer {
     // Create pane container
     this.container = document.createElement("div");
     this.container.className = "pane";
-    this.container.style.height = `${options.height * LINE_HEIGHT}px`;
     this.container.dataset.paneId = options.id;
+
+    if (options.isFloating) {
+      this.container.style.height = "100%";
+      this.container.style.borderBottom = "none";
+    } else {
+      this.container.style.height = `${options.height * LINE_HEIGHT}px`;
+    }
 
     // Create scrollable content area
     this.content = document.createElement("div");
@@ -58,9 +65,12 @@ export class PaneRenderer {
     this.titleEl.textContent = options.title || options.id;
     this.container.appendChild(this.titleEl);
 
-    // Create resize handle at the bottom
+    // Create resize handle at the bottom (skip for floating panes)
     this.resizeHandle = document.createElement("div");
     this.resizeHandle.className = "pane-resize-handle";
+    if (options.isFloating) {
+      this.resizeHandle.style.display = "none";
+    }
     this.container.appendChild(this.resizeHandle);
 
     // Handle scroll events

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -11,7 +11,7 @@ import {
 
 import { loadSettings } from "./services/settings-store";
 import { loadConfig, AppConfig } from "./services/config-store";
-import { PanesConfig } from "./services/panes-config-store";
+import { PanesConfig, PaneConfig, savePanesConfig, loadPanesConfig, updatePane } from "./services/panes-config-store";
 import { NotificationsConfig, loadNotificationsConfig } from "./services/notifications-config-store";
 import { TerminalSettings } from "./types/settings";
 import { parseGuiEvent, GuiEvent } from "./types/gui-events";
@@ -26,6 +26,82 @@ import "./styles/fonts.css";
 import "./styles/panes.css";
 
 let settingsWindow: WebviewWindow | null = null;
+const floatingPanes: Map<string, WebviewWindow> = new Map();
+let currentPanesConfig: PanesConfig | null = null;
+
+// Pending update held until user explicitly runs /update
+let pendingUpdate: Awaited<ReturnType<typeof check>> | null = null;
+
+async function openFloatingPane(paneConfig: PaneConfig) {
+  const windowLabel = `pane-${paneConfig.id}`;
+
+  // If already open, focus it
+  const existing = floatingPanes.get(paneConfig.id);
+  if (existing) {
+    try {
+      await existing.setFocus();
+      return;
+    } catch {
+      floatingPanes.delete(paneConfig.id);
+    }
+  }
+
+  const windowOptions: ConstructorParameters<typeof WebviewWindow>[1] = {
+    url: "floating-pane.html",
+    title: paneConfig.id.charAt(0).toUpperCase() + paneConfig.id.slice(1),
+    width: paneConfig.width || 400,
+    height: paneConfig.height ? paneConfig.height * 20 : 200,
+    resizable: true,
+    minimizable: true,
+    decorations: true,
+  };
+
+  // Restore saved position
+  if (paneConfig.x !== undefined && paneConfig.y !== undefined) {
+    windowOptions.x = paneConfig.x;
+    windowOptions.y = paneConfig.y;
+  } else {
+    windowOptions.center = true;
+  }
+
+  const floatingWindow = new WebviewWindow(windowLabel, windowOptions);
+  floatingPanes.set(paneConfig.id, floatingWindow);
+
+  floatingWindow.once("tauri://destroyed", () => {
+    floatingPanes.delete(paneConfig.id);
+  });
+
+  // Persist position on move/resize
+  floatingWindow.onMoved(async (position) => {
+    await persistFloatingPanePosition(paneConfig.id, { x: position.payload.x, y: position.payload.y });
+  });
+
+  floatingWindow.onResized(async (size) => {
+    await persistFloatingPanePosition(paneConfig.id, { width: size.payload.width });
+  });
+}
+
+async function closeFloatingPane(paneId: string) {
+  const floatingWindow = floatingPanes.get(paneId);
+  if (floatingWindow) {
+    try {
+      await floatingWindow.close();
+    } catch {
+      // already closed
+    }
+    floatingPanes.delete(paneId);
+  }
+}
+
+async function persistFloatingPanePosition(paneId: string, updates: { x?: number; y?: number; width?: number }) {
+  if (!currentPanesConfig) return;
+  currentPanesConfig = updatePane(currentPanesConfig, paneId, updates);
+  try {
+    await savePanesConfig(currentPanesConfig);
+  } catch {
+    // non-critical, position just won't persist
+  }
+}
 
 async function openSettings() {
   // If window exists and is open, focus it
@@ -42,7 +118,7 @@ async function openSettings() {
   settingsWindow = new WebviewWindow("settings", {
     url: "settings.html",
     title: "Settings",
-    width: 560,
+    width: 660,
     height: 820,
     resizable: true,
     minimizable: false,
@@ -58,18 +134,28 @@ async function checkForUpdates(showMessage: (msg: string) => void) {
   try {
     const update = await check();
     if (update) {
-      showMessage(`Update available: v${update.version}. Downloading...`);
-      await update.downloadAndInstall();
-      showMessage("Update installed. Restart to apply.");
-      // Give user time to see the message, then offer to restart
-      setTimeout(async () => {
-        if (confirm("Update installed. Restart now?")) {
-          await relaunch();
-        }
-      }, 1000);
+      pendingUpdate = update;
+      showMessage(`Update available: v${update.version}. Type /update to install.`);
     }
   } catch (error) {
     console.error("Update check failed:", error);
+  }
+}
+
+async function installPendingUpdate(showMessage: (msg: string) => void) {
+  if (!pendingUpdate) {
+    showMessage("No update available.");
+    return;
+  }
+  const update = pendingUpdate;
+  pendingUpdate = null;
+  showMessage(`Downloading v${update.version}...`);
+  try {
+    await update.downloadAndInstall();
+    showMessage("Update installed. Relaunching...");
+    await relaunch();
+  } catch (error) {
+    showMessage(`Update failed: ${error}`);
   }
 }
 
@@ -102,11 +188,23 @@ async function main() {
   // Just ensure it doesn't visually interfere (it's transparent anyway)
 
   // Load saved settings, config, and notifications config
-  const [settings, config, notificationsConfig] = await Promise.all([
+  const [settings, config, notificationsConfig, panesConfig] = await Promise.all([
     loadSettings(),
     loadConfig(),
     loadNotificationsConfig(),
+    loadPanesConfig(),
   ]);
+
+  currentPanesConfig = panesConfig;
+
+  // Open floating pane windows on startup
+  if (currentPanesConfig) {
+    for (const paneConfig of currentPanesConfig.panes) {
+      if (paneConfig.enabled !== false && paneConfig.position === "floating") {
+        openFloatingPane(paneConfig);
+      }
+    }
+  }
 
   // Track current notifications config (can be updated from settings)
   let currentNotificationsConfig: NotificationsConfig = notificationsConfig;
@@ -146,6 +244,11 @@ async function main() {
       // If disconnected and user presses Enter with empty input, show menu
       if (!isConnected && data === "\r") {
         invoke("write_to_pty", { data: "\r" }); // Trigger menu via backend
+        return;
+      }
+      // Intercept /update command
+      if (data.replace(/\r?\n?$/, "") === "/update") {
+        installPendingUpdate((msg) => mainOutput.addClientMessage(msg));
         return;
       }
       invoke("write_to_pty", { data });
@@ -216,8 +319,14 @@ async function main() {
   function handleGuiEvent(event: GuiEvent) {
     switch (event.event) {
       case "pane": {
-        const pane = getOrCreatePane(event.id);
-        pane.addMessages(event.messages);
+        // Check if this pane is floating
+        if (floatingPanes.has(event.id)) {
+          // Forward messages to the floating window
+          emit(`pane-messages-${event.id}`, event.messages);
+        } else {
+          const pane = getOrCreatePane(event.id);
+          pane.addMessages(event.messages);
+        }
         // Send desktop notification for configured pattern groups when window is not focused
         if (
           notificationsPermissionGranted &&
@@ -328,9 +437,13 @@ async function main() {
         break;
       }
       case "panes-config": {
-        // Create pane containers for all enabled panes
+        // Create pane containers for all enabled panes (skip floating ones)
         for (const paneConfig of event.panes) {
-          if (paneConfig.enabled && !panes.has(paneConfig.id)) {
+          if (!paneConfig.enabled) continue;
+          // Check local config to see if this pane is floating
+          const localConfig = currentPanesConfig?.panes.find(p => p.id === paneConfig.id);
+          if (localConfig?.position === "floating") continue;
+          if (!panes.has(paneConfig.id)) {
             const pane = new PaneRenderer(panesContainer, {
               id: paneConfig.id,
               title: paneConfig.title,
@@ -422,39 +535,58 @@ async function main() {
   // Listen for panes config changes (from settings window)
   listen<PanesConfig>("panes-config-changed", (event) => {
     const newPanesConfig = event.payload;
+    currentPanesConfig = newPanesConfig;
 
-    // Track which panes should be enabled
-    const enabledPaneIds = new Set<string>();
+    // Track which panes should be docked vs floating
+    const dockedPaneIds = new Set<string>();
+    const floatingPaneConfigs: PaneConfig[] = [];
+
     for (const paneConfig of newPanesConfig.panes) {
-      if (paneConfig.enabled !== false) {
-        enabledPaneIds.add(paneConfig.id);
+      if (paneConfig.enabled === false) continue;
+      if (paneConfig.position === "floating") {
+        floatingPaneConfigs.push(paneConfig);
+      } else {
+        dockedPaneIds.add(paneConfig.id);
       }
     }
 
-    // Remove panes that are now disabled
+    // Remove docked panes that are now disabled or floating
     for (const [paneId, pane] of panes) {
-      if (!enabledPaneIds.has(paneId)) {
+      if (!dockedPaneIds.has(paneId)) {
         pane.destroy();
         panes.delete(paneId);
       }
     }
 
-    // Add or update enabled panes
+    // Close floating windows for panes that are now docked or disabled
+    for (const [paneId] of floatingPanes) {
+      const config = newPanesConfig.panes.find(p => p.id === paneId);
+      if (!config || config.enabled === false || config.position !== "floating") {
+        closeFloatingPane(paneId);
+      }
+    }
+
+    // Add or update docked panes
     for (const paneConfig of newPanesConfig.panes) {
-      if (paneConfig.enabled === false) continue;
+      if (paneConfig.enabled === false || paneConfig.position === "floating") continue;
 
       const existingPane = panes.get(paneConfig.id);
       if (existingPane) {
-        // Update height if changed
         existingPane.setHeightInLines(paneConfig.height);
       } else {
-        // Create new pane
         const pane = new PaneRenderer(panesContainer, {
           id: paneConfig.id,
           title: paneConfig.id.charAt(0).toUpperCase() + paneConfig.id.slice(1),
           height: paneConfig.height,
         });
         panes.set(paneConfig.id, pane);
+      }
+    }
+
+    // Open floating pane windows
+    for (const paneConfig of floatingPaneConfigs) {
+      if (!floatingPanes.has(paneConfig.id)) {
+        openFloatingPane(paneConfig);
       }
     }
   });
