@@ -36,6 +36,7 @@ export interface GuiMainEvent {
   event: "main";
   lines: string[];        // Plain text lines
   ansi: string[];         // Lines with ANSI codes
+  types?: string[];       // Classification type for each line (for notifications)
 }
 
 export interface GuiInputEvent {
@@ -241,7 +242,7 @@ class MudClient {
         panes.push({
           id: paneId,
           title: pane.title,
-          height: pane.height,
+          height: pane.getHeight(),
           enabled: pane.enabled,
         });
       }
@@ -787,7 +788,7 @@ class MudClient {
     this.paneManager.updateConfigs(this.paneConfig.getPanes());
 
     const lines = toFlush.split("\n");
-    const mainLines: { text: string; ansi: string }[] = [];
+    const mainLines: { text: string; ansi: string; type: string }[] = [];
     const paneUpdates: Map<string, GuiPaneMessage[]> = new Map();
 
     for (const line of lines) {
@@ -820,7 +821,7 @@ class MudClient {
 
       // Add to main lines if not consumed by a pane
       if (!routedToPane) {
-        mainLines.push({ text: stripped, ansi: line });
+        mainLines.push({ text: stripped, ansi: line, type: classified.type });
       }
     }
 
@@ -839,6 +840,7 @@ class MudClient {
         event: "main",
         lines: mainLines.map((l) => l.text),
         ansi: mainLines.map((l) => l.ansi),
+        types: mainLines.map((l) => l.type),
       });
     }
   }

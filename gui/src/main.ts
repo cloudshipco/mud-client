@@ -3,10 +3,16 @@ import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
 
 import { loadSettings } from "./services/settings-store";
 import { loadConfig, AppConfig } from "./services/config-store";
 import { PanesConfig } from "./services/panes-config-store";
+import { NotificationsConfig, loadNotificationsConfig } from "./services/notifications-config-store";
 import { TerminalSettings } from "./types/settings";
 import { parseGuiEvent, GuiEvent } from "./types/gui-events";
 import { PaneRenderer } from "./components/pane-renderer";
@@ -95,8 +101,22 @@ async function main() {
   // Keep the HTML fallback drag region - it provides dragging during any loading state
   // Just ensure it doesn't visually interfere (it's transparent anyway)
 
-  // Load saved settings and config
-  const [settings, config] = await Promise.all([loadSettings(), loadConfig()]);
+  // Load saved settings, config, and notifications config
+  const [settings, config, notificationsConfig] = await Promise.all([
+    loadSettings(),
+    loadConfig(),
+    loadNotificationsConfig(),
+  ]);
+
+  // Track current notifications config (can be updated from settings)
+  let currentNotificationsConfig: NotificationsConfig = notificationsConfig;
+
+  // Request notification permission
+  let notificationsPermissionGranted = await isPermissionGranted();
+  if (!notificationsPermissionGranted) {
+    const permission = await requestPermission();
+    notificationsPermissionGranted = permission === "granted";
+  }
 
   // Apply settings via CSS custom properties
   const root = document.documentElement;
@@ -198,10 +218,46 @@ async function main() {
       case "pane": {
         const pane = getOrCreatePane(event.id);
         pane.addMessages(event.messages);
+        // Send desktop notification for configured pattern groups when window is not focused
+        if (
+          notificationsPermissionGranted &&
+          currentNotificationsConfig.enabled &&
+          currentNotificationsConfig.groups.length > 0 &&
+          !document.hasFocus()
+        ) {
+          for (const msg of event.messages) {
+            if (currentNotificationsConfig.groups.includes(msg.type)) {
+              sendNotification({
+                title: `${msg.type.charAt(0).toUpperCase() + msg.type.slice(1)} received`,
+                body: msg.text,
+                icon: "icons/128x128.png",
+              });
+            }
+          }
+        }
         break;
       }
       case "main": {
         mainOutput.addLines(event.lines, event.ansi);
+        // Send desktop notifications for configured pattern groups when window is not focused
+        if (
+          notificationsPermissionGranted &&
+          currentNotificationsConfig.enabled &&
+          currentNotificationsConfig.groups.length > 0 &&
+          event.types &&
+          !document.hasFocus()
+        ) {
+          for (let i = 0; i < event.types.length; i++) {
+            const type = event.types[i];
+            if (currentNotificationsConfig.groups.includes(type)) {
+              sendNotification({
+                title: `${type.charAt(0).toUpperCase() + type.slice(1)} received`,
+                body: event.lines[i],
+                icon: "icons/128x128.png",
+              });
+            }
+          }
+        }
         break;
       }
       case "input": {
@@ -401,6 +457,11 @@ async function main() {
         panes.set(paneConfig.id, pane);
       }
     }
+  });
+
+  // Listen for notifications config changes
+  listen<NotificationsConfig>("notifications-config-changed", (event) => {
+    currentNotificationsConfig = event.payload;
   });
 
   // Apply settings to the app using CSS custom properties

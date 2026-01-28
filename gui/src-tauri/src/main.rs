@@ -176,6 +176,7 @@ fn main() {
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(PtyWriter(Arc::new(Mutex::new(None))))
         .manage(PtyMaster(Arc::new(Mutex::new(None))))
         .setup(|app| {

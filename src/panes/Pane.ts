@@ -56,6 +56,10 @@ export class Pane {
     this._enabled = enabled;
   }
 
+  get title(): string {
+    return this.id.charAt(0).toUpperCase() + this.id.slice(1);
+  }
+
   get focused(): boolean {
     return this._focused;
   }

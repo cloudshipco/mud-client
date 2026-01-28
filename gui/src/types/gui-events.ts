@@ -21,6 +21,7 @@ export interface GuiMainEvent {
   event: "main";
   lines: string[];        // Plain text lines
   ansi: string[];         // Lines with ANSI codes
+  types?: string[];       // Classification type for each line (for notifications)
 }
 
 export interface GuiInputEvent {

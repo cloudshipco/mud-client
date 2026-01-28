@@ -44,8 +44,19 @@ import {
 import {
   updatePanePatterns,
 } from './services/panes-config-store';
+import {
+  NotificationsConfig,
+  loadNotificationsConfig,
+  saveNotificationsConfig,
+  resetNotificationsConfig,
+} from './services/notifications-config-store';
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from '@tauri-apps/plugin-notification';
 
-type TabId = 'terminal' | 'config' | 'panes' | 'aliases' | 'patterns';
+type TabId = 'terminal' | 'config' | 'panes' | 'aliases' | 'patterns' | 'notifications';
 
 const FONT_FAMILIES = [
   // Bundled fonts (Monaspace)
@@ -94,22 +105,38 @@ let currentAliases: AliasMap = {};
 let originalAliases: AliasMap = {};
 let currentPatterns: PatternsConfig = { groups: {} };
 let originalPatterns: PatternsConfig = { groups: {} };
+let currentNotifications: NotificationsConfig = { enabled: true, groups: [] };
+let originalNotifications: NotificationsConfig = { enabled: true, groups: [] };
 let activeTab: TabId = 'terminal';
 
 async function init() {
-  [currentSettings, currentConfig, currentPanesConfig, currentAliases, currentPatterns] = await Promise.all([
+  [currentSettings, currentConfig, currentPanesConfig, currentAliases, currentPatterns, currentNotifications] = await Promise.all([
     loadSettings(),
     loadConfig(),
     loadPanesConfig(),
     loadAliases(),
     loadPatternsConfig(),
+    loadNotificationsConfig(),
   ]);
   originalSettings = JSON.parse(JSON.stringify(currentSettings));
   originalConfig = JSON.parse(JSON.stringify(currentConfig));
   originalPanesConfig = currentPanesConfig ? JSON.parse(JSON.stringify(currentPanesConfig)) : null;
   originalAliases = JSON.parse(JSON.stringify(currentAliases));
   originalPatterns = JSON.parse(JSON.stringify(currentPatterns));
+  originalNotifications = JSON.parse(JSON.stringify(currentNotifications));
   render();
+}
+
+function buildTabContent(): string {
+  switch (activeTab) {
+    case 'terminal': return buildTerminalSections();
+    case 'config': return buildConfigSection();
+    case 'panes': return buildPanesSection();
+    case 'aliases': return buildAliasesSection();
+    case 'patterns': return buildPatternsSection();
+    case 'notifications': return buildNotificationsSection();
+    default: return '';
+  }
 }
 
 function render() {
@@ -124,9 +151,10 @@ function render() {
         <button class="settings-tab ${activeTab === 'aliases' ? 'active' : ''}" data-tab="aliases">Aliases</button>
         <button class="settings-tab ${activeTab === 'patterns' ? 'active' : ''}" data-tab="patterns">Patterns</button>
         <button class="settings-tab ${activeTab === 'panes' ? 'active' : ''}" data-tab="panes">Panes</button>
+        <button class="settings-tab ${activeTab === 'notifications' ? 'active' : ''}" data-tab="notifications">Notifications</button>
       </div>
       <div class="settings-content">
-        ${activeTab === 'terminal' ? buildTerminalSections() : activeTab === 'config' ? buildConfigSection() : activeTab === 'panes' ? buildPanesSection() : activeTab === 'aliases' ? buildAliasesSection() : buildPatternsSection()}
+        ${buildTabContent()}
       </div>
       <div class="settings-footer">
         <button class="settings-btn settings-btn-danger" id="reset-btn">Reset to Defaults</button>
@@ -442,6 +470,50 @@ function buildGroupPatternRows(groupName: string, patterns: string[]): string {
   }).join('');
 }
 
+function buildNotificationsSection(): string {
+  const groupNames = Object.keys(currentPatterns.groups).sort();
+
+  const groupCheckboxes = groupNames.length > 0
+    ? groupNames.map(groupName => {
+        const isChecked = currentNotifications.groups.includes(groupName);
+        return `
+          <label class="settings-chip ${isChecked ? 'active' : ''}">
+            <input type="checkbox" data-notify-group="${escapeHtml(groupName)}"
+                   ${isChecked ? 'checked' : ''}>
+            ${escapeHtml(groupName)}
+          </label>
+        `;
+      }).join('')
+    : '<span class="settings-description">No pattern groups defined. Create them in the Patterns tab first.</span>';
+
+  return `
+    <div class="settings-section">
+      <h3>Desktop Notifications</h3>
+      <p class="settings-description">
+        Receive desktop notifications when messages match selected pattern groups.
+        Notifications only appear when the app window is not focused.
+      </p>
+      <div class="settings-row">
+        <label class="settings-label">
+          <input type="checkbox" id="notifications-enabled" ${currentNotifications.enabled ? 'checked' : ''}>
+          Enable notifications
+        </label>
+      </div>
+      <div class="settings-row" style="margin-top: 12px;">
+        <button class="settings-btn settings-btn-secondary" id="test-notification-btn">Send Test Notification</button>
+        <span id="notification-status" class="settings-description" style="margin-left: 12px;"></span>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Notify for Pattern Groups</h3>
+      <div class="settings-pane-pattern-chips">
+        ${groupCheckboxes}
+      </div>
+    </div>
+  `;
+}
+
 function bindTabs() {
   const tabs = document.querySelectorAll('.settings-tab');
   tabs.forEach((tab) => {
@@ -637,6 +709,9 @@ function bindInputs() {
 
   // Pattern inputs (patterns tab)
   bindPatternInputs();
+
+  // Notifications inputs (notifications tab)
+  bindNotificationsInputs();
 }
 
 function bindPaneInputs() {
@@ -907,6 +982,71 @@ function bindPatternInputs() {
   }
 }
 
+function bindNotificationsInputs() {
+  // Master enable toggle
+  const enabledInput = document.getElementById('notifications-enabled') as HTMLInputElement;
+  if (enabledInput) {
+    enabledInput.addEventListener('change', () => {
+      currentNotifications.enabled = enabledInput.checked;
+    });
+  }
+
+  // Pattern group checkboxes
+  document.querySelectorAll('[data-notify-group]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const groupName = el.dataset.notifyGroup!;
+
+    el.addEventListener('change', () => {
+      if (el.checked) {
+        if (!currentNotifications.groups.includes(groupName)) {
+          currentNotifications.groups.push(groupName);
+        }
+      } else {
+        currentNotifications.groups = currentNotifications.groups.filter(g => g !== groupName);
+      }
+      // Update chip visual state
+      const label = el.parentElement;
+      if (label) {
+        label.classList.toggle('active', el.checked);
+      }
+    });
+  });
+
+  // Test notification button
+  const testBtn = document.getElementById('test-notification-btn');
+  const statusEl = document.getElementById('notification-status');
+  if (testBtn) {
+    testBtn.addEventListener('click', async () => {
+      if (statusEl) statusEl.textContent = 'Checking permission...';
+
+      try {
+        let permissionGranted = await isPermissionGranted();
+
+        if (!permissionGranted) {
+          if (statusEl) statusEl.textContent = 'Requesting permission...';
+          const permission = await requestPermission();
+          permissionGranted = permission === 'granted';
+        }
+
+        if (permissionGranted) {
+          if (statusEl) statusEl.textContent = 'Sending notification...';
+          await sendNotification({
+            title: 'Twilite',
+            body: 'Test notification - notifications are working!',
+            icon: 'icons/128x128.png',
+          });
+          if (statusEl) statusEl.textContent = 'Notification sent!';
+        } else {
+          if (statusEl) statusEl.textContent = 'Permission denied. Check System Settings > Notifications.';
+        }
+      } catch (err) {
+        console.error('Notification error:', err);
+        if (statusEl) statusEl.textContent = `Error: ${err}`;
+      }
+    });
+  }
+}
+
 function updateConfig(
   key: keyof AppConfig,
   el: HTMLInputElement | HTMLSelectElement
@@ -979,6 +1119,7 @@ function bindButtons() {
       saveConfig(currentConfig),
       saveAliases(currentAliases),
       savePatternsConfig(currentPatterns),
+      saveNotificationsConfig(currentNotifications),
     ];
     if (currentPanesConfig) {
       saves.push(savePanesConfig(currentPanesConfig));
@@ -988,6 +1129,7 @@ function bindButtons() {
     await emitConfigChange();
     await emitPanesConfigChange();
     await emitPatternsConfigChange();
+    await emitNotificationsConfigChange();
     getCurrentWindow().close();
   });
 
@@ -1007,6 +1149,8 @@ function bindButtons() {
       currentAliases = await resetAliases();
     } else if (activeTab === 'patterns') {
       currentPatterns = await resetPatternsConfig();
+    } else if (activeTab === 'notifications') {
+      currentNotifications = await resetNotificationsConfig();
     }
     // Note: No reset for panes - they need the YAML file
     render();
@@ -1029,6 +1173,10 @@ async function emitPanesConfigChange() {
 
 async function emitPatternsConfigChange() {
   await emit('patterns-config-changed', currentPatterns);
+}
+
+async function emitNotificationsConfigChange() {
+  await emit('notifications-config-changed', currentNotifications);
 }
 
 // Handle Escape key to close
