@@ -20,9 +20,11 @@ export class MenuRenderer {
   private container: HTMLElement;
   private menuEl: HTMLElement | null = null;
   private state: MenuState | null = null;
+  private onSelect: ((index: number) => void) | null = null;
 
-  constructor(parent: HTMLElement) {
+  constructor(parent: HTMLElement, onSelect?: (index: number) => void) {
     this.container = parent;
+    this.onSelect = onSelect || null;
   }
 
   show(state: MenuState): void {
@@ -41,6 +43,10 @@ export class MenuRenderer {
 
   isVisible(): boolean {
     return this.state !== null;
+  }
+
+  getSelectedIndex(): number {
+    return this.state?.selectedIndex ?? 0;
   }
 
   private render(): void {
@@ -79,6 +85,15 @@ export class MenuRenderer {
         itemEl.classList.add("new-item");
       }
       itemEl.textContent = item.label;
+
+      // Add click handler to select this item
+      itemEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (this.onSelect) {
+          this.onSelect(index);
+        }
+      });
+
       itemsContainer.appendChild(itemEl);
     });
 

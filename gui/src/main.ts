@@ -137,7 +137,20 @@ async function main() {
   });
 
   // Create menu and prompt renderers (overlays)
-  const menuRenderer = new MenuRenderer(document.body);
+  const menuRenderer = new MenuRenderer(document.body, (clickedIndex: number) => {
+    // Navigate to the clicked item and select it
+    const currentIndex = menuRenderer.getSelectedIndex();
+    const delta = clickedIndex - currentIndex;
+
+    // Send navigation keys to move to the clicked item
+    const arrowKey = delta > 0 ? "\x1b[B" : "\x1b[A"; // Down or Up
+    for (let i = 0; i < Math.abs(delta); i++) {
+      invoke("write_to_pty", { data: arrowKey });
+    }
+
+    // Send Enter to select the item
+    invoke("write_to_pty", { data: "\r" });
+  });
   const promptRenderer = new PromptRenderer(document.body);
 
   // Get or create pane renderer
