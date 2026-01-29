@@ -69,7 +69,18 @@ import {
   loadTimersConfig,
   saveTimersConfig,
   resetTimersConfig,
+  TriggerAction as TimerAction,
 } from './services/timers-config-store';
+
+// Timer action types (subset of trigger actions + timer-specific)
+const TIMER_ACTION_TYPES: { value: TriggerActionType; label: string }[] = [
+  { value: 'send', label: 'Send command' },
+  { value: 'notify', label: 'Notification' },
+  { value: 'disable_trigger', label: 'Disable trigger' },
+  { value: 'enable_trigger', label: 'Enable trigger' },
+  { value: 'disable_timer', label: 'Disable timer' },
+  { value: 'enable_timer', label: 'Enable timer' },
+];
 import {
   GaugesConfig,
   GaugeConfig,
@@ -79,6 +90,19 @@ import {
   removeGauge,
   updateGauge,
 } from './services/gauges-config-store';
+import {
+  escapeHtml,
+  Card,
+  Subsection,
+  ItemList,
+  ConditionsList,
+  FormRow,
+  ActionRow,
+  ConditionRow,
+  Chip,
+  ChipContainer,
+  SecondaryText,
+} from './components/settings';
 import {
   isPermissionGranted,
   requestPermission,
@@ -899,9 +923,7 @@ function buildConfigSection(): string {
   `;
 }
 
-function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+// escapeHtml is imported from './components/settings'
 
 function buildPanesSection(): string {
   if (!currentPanesConfig || currentPanesConfig.panes.length === 0) {
@@ -924,49 +946,57 @@ function buildPanesSection(): string {
 
   const paneRows = currentPanesConfig.panes.map((pane) => {
     const currentPanePatterns = pane.filter.patterns || [];
+
+    // Build pattern chips using Chip component
+    const patternChips = availableGroups.length > 0
+      ? availableGroups.map(group =>
+          Chip({
+            label: group,
+            selected: currentPanePatterns.includes(group),
+            dataAttr: 'pane-pattern',
+            value: `${pane.id}:${group}`,
+          })
+        ).join('')
+      : SecondaryText('No pattern groups defined. Create them in the Patterns tab.');
+
     return `
-      <div class="settings-pane-card" data-pane-id="${pane.id}">
-        <div class="settings-pane-header">
-          <div class="settings-pane-title">
-            <input type="checkbox" class="settings-checkbox" data-pane-enabled="${pane.id}"
-                   ${pane.enabled !== false ? 'checked' : ''}>
-            <span class="settings-pane-name">${escapeHtml(pane.id)}</span>
-          </div>
+      <div class="settings-pattern-group-card" data-pane-id="${pane.id}">
+        <div class="settings-pattern-group-header">
+          <input type="checkbox" class="settings-checkbox" data-pane-enabled="${pane.id}"
+                 ${pane.enabled !== false ? 'checked' : ''}>
+          <span class="settings-group-name-input" style="background: transparent; border: none; cursor: default;">${escapeHtml(pane.id)}</span>
         </div>
-        <div class="settings-pane-options">
-          <div class="settings-pane-option">
-            <label class="settings-label">Float</label>
-            <input type="checkbox" class="settings-checkbox" data-pane-floating="${pane.id}"
-                   ${pane.position === 'floating' ? 'checked' : ''}>
-          </div>
-          <div class="settings-pane-option" ${pane.position === 'floating' ? 'style="opacity: 0.4; pointer-events: none;"' : ''}>
-            <label class="settings-label">Height (lines)</label>
-            <input type="number" class="settings-input" data-pane-height="${pane.id}"
-                   value="${pane.height}" min="1" max="20" step="1">
-          </div>
-          <div class="settings-pane-option">
-            <label class="settings-label">Passthrough</label>
-            <input type="checkbox" class="settings-checkbox" data-pane-passthrough="${pane.id}"
-                   ${pane.passthrough ? 'checked' : ''}>
-          </div>
-          <div class="settings-pane-option">
-            <label class="settings-label">Max Messages</label>
-            <input type="number" class="settings-input" data-pane-max="${pane.id}"
-                   value="${pane.maxMessages || 500}" min="50" max="2000" step="50">
-          </div>
-        </div>
-        <div class="settings-pane-patterns">
-          <label class="settings-label">Pattern Groups</label>
-          <div class="settings-pane-pattern-chips">
-            ${availableGroups.length > 0 ? availableGroups.map(group => `
-              <label class="settings-chip ${currentPanePatterns.includes(group) ? 'active' : ''}">
-                <input type="checkbox" data-pane-pattern="${pane.id}:${group}"
-                       ${currentPanePatterns.includes(group) ? 'checked' : ''}>
-                ${escapeHtml(group)}
-              </label>
-            `).join('') : '<span class="settings-description">No pattern groups defined. Create them in the Patterns tab.</span>'}
-          </div>
-        </div>
+        ${Subsection({
+          label: 'Options',
+          children: `
+            <div class="settings-pane-options">
+              <div class="settings-pane-option">
+                <label class="settings-label">Float</label>
+                <input type="checkbox" class="settings-checkbox" data-pane-floating="${pane.id}"
+                       ${pane.position === 'floating' ? 'checked' : ''}>
+              </div>
+              <div class="settings-pane-option"${pane.position === 'floating' ? ' style="opacity: 0.4; pointer-events: none;"' : ''}>
+                <label class="settings-label">Height (lines)</label>
+                <input type="number" class="settings-input" data-pane-height="${pane.id}"
+                       value="${pane.height}" min="1" max="20" step="1">
+              </div>
+              <div class="settings-pane-option">
+                <label class="settings-label">Passthrough</label>
+                <input type="checkbox" class="settings-checkbox" data-pane-passthrough="${pane.id}"
+                       ${pane.passthrough ? 'checked' : ''}>
+              </div>
+              <div class="settings-pane-option">
+                <label class="settings-label">Max Messages</label>
+                <input type="number" class="settings-input" data-pane-max="${pane.id}"
+                       value="${pane.maxMessages || 500}" min="50" max="2000" step="50">
+              </div>
+            </div>
+          `,
+        })}
+        ${Subsection({
+          label: 'Pattern Groups',
+          children: ChipContainer({ children: patternChips }),
+        })}
       </div>
     `;
   }).join('');
@@ -1167,155 +1197,84 @@ function buildTriggersSection(): string {
   // Get available pattern groups from the Patterns tab
   const availableGroups = Object.keys(currentPatterns.groups).sort();
 
+  // Build trigger and timer options for action dropdowns
+  const triggerOptions = currentTriggers.triggers
+    .filter(t => t.name && t.name.trim() !== '')
+    .map(t => ({ name: t.name }));
+  const timerOptions = currentTimers.timers
+    .filter(t => t.name && t.name.trim() !== '')
+    .map(t => ({ name: t.name }));
+
   const triggerCards = currentTriggers.triggers.map((trigger, triggerIndex) => {
     // Build pattern group selection chips
-    const patternChips = availableGroups.map(groupName => {
-      const isSelected = trigger.patternGroups.includes(groupName);
-      return `
-        <label class="settings-chip ${isSelected ? 'active' : ''}">
-          <input type="checkbox" data-trigger-pattern-group="${triggerIndex}:${groupName}"
-                 ${isSelected ? 'checked' : ''}>
-          ${escapeHtml(groupName)}
-        </label>
-      `;
-    }).join('');
+    const patternChips = availableGroups.map(groupName =>
+      Chip({
+        label: groupName,
+        selected: trigger.patternGroups.includes(groupName),
+        dataAttr: 'trigger-pattern-group',
+        value: `${triggerIndex}:${groupName}`,
+      })
+    ).join('');
 
     // Get available capture groups from selected pattern groups
     const availableCaptureGroups = getCaptureGroupsForPatternGroups(trigger.patternGroups);
 
-    const conditionRows = (trigger.conditions || []).map((condition, condIndex) => {
-      const valueStr = Array.isArray(condition.value)
-        ? condition.value.join(', ')
-        : String(condition.value ?? '');
+    // Build condition rows using component
+    const conditionRows = (trigger.conditions || []).map((condition, condIndex) =>
+      ConditionRow({
+        triggerIndex,
+        condIndex,
+        condition,
+        captureOptions: availableCaptureGroups,
+        operators: CONDITION_OPERATORS,
+      })
+    ).join('');
 
-      // Build capture group options - include current value if not in list (for backwards compat)
-      const captureOptions = [...availableCaptureGroups];
-      if (condition.capture && !captureOptions.includes(condition.capture)) {
-        captureOptions.unshift(condition.capture);
-      }
-
-      return `
-        <div class="settings-trigger-condition-row" data-trigger-condition="${triggerIndex}:${condIndex}">
-          <select class="settings-select settings-trigger-condition-capture"
-                  data-trigger-cond-capture="${triggerIndex}:${condIndex}">
-            <option value="">Select capture...</option>
-            ${captureOptions.map(cap =>
-              `<option value="${escapeHtml(cap)}" ${condition.capture === cap ? 'selected' : ''}>${escapeHtml(cap)}</option>`
-            ).join('')}
-          </select>
-          <select class="settings-select settings-trigger-condition-operator"
-                  data-trigger-cond-operator="${triggerIndex}:${condIndex}">
-            ${CONDITION_OPERATORS.map(op =>
-              `<option value="${op.value}" ${condition.operator === op.value ? 'selected' : ''}>${escapeHtml(op.label)}</option>`
-            ).join('')}
-          </select>
-          <input type="text" class="settings-input settings-trigger-condition-value"
-                 data-trigger-cond-value="${triggerIndex}:${condIndex}"
-                 value="${escapeHtml(valueStr)}" placeholder="value or a, b, c">
-          <button class="settings-btn settings-btn-icon" data-delete-trigger-condition="${triggerIndex}:${condIndex}" title="Delete condition">\u00d7</button>
-        </div>
-      `;
-    }).join('');
-
-    const actionRows = (trigger.actions || []).map((action, actionIndex) => {
-      const isTriggerAction = action.type === 'disable_trigger' || action.type === 'enable_trigger';
-      const isSetVariable = action.type === 'set_variable';
-      const triggerOptions = currentTriggers.triggers
-        .map((t, i) => ({ name: t.name, index: i }))
-        .filter(t => t.name && t.name.trim() !== ''); // Only show named triggers
-
-      let valueInput: string;
-      if (isSetVariable) {
-        // set_variable needs: name (variable), capture (group name)
-        // valueType is auto-inferred at runtime (number if parseable, else string)
-        // Build capture options - include current value if not in list (for backwards compat)
-        const captureOptions = [...availableCaptureGroups];
-        if (action.capture && !captureOptions.includes(action.capture)) {
-          captureOptions.unshift(action.capture);
-        }
-        valueInput = `
-          <input type="text" class="settings-input" style="width: 100px"
-                 data-trigger-action-var-name="${triggerIndex}:${actionIndex}"
-                 value="${escapeHtml(action.name || '')}" placeholder="var name" title="Variable name to set">
-          <span style="color: #888">=</span>
-          <select class="settings-select" style="width: 130px"
-                  data-trigger-action-capture="${triggerIndex}:${actionIndex}" title="Named capture group">
-            <option value="">Select capture...</option>
-            ${captureOptions.map(cap =>
-              `<option value="${escapeHtml(cap)}" ${action.capture === cap ? 'selected' : ''}>${escapeHtml(cap)}</option>`
-            ).join('')}
-          </select>`;
-      } else if (isTriggerAction) {
-        valueInput = `<select class="settings-select settings-trigger-action-value"
-                  data-trigger-action-value="${triggerIndex}:${actionIndex}">
-            <option value="">Select trigger...</option>
-            ${triggerOptions.map(t =>
-              `<option value="${escapeHtml(t.name)}" ${action.value === t.name ? 'selected' : ''}>${escapeHtml(t.name)}</option>`
-            ).join('')}
-          </select>`;
-      } else {
-        valueInput = `<input type="text" class="settings-input settings-trigger-action-value"
-                 data-trigger-action-value="${triggerIndex}:${actionIndex}"
-                 value="${escapeHtml(action.value || '')}" placeholder="${action.type === 'send' ? 'command to send' : 'notification message'}">`;
-      }
-
-      return `
-        <div class="settings-trigger-action-row" data-trigger-action="${triggerIndex}:${actionIndex}">
-          <select class="settings-select settings-trigger-action-type"
-                  data-trigger-action-type="${triggerIndex}:${actionIndex}">
-            ${ACTION_TYPES.map(at =>
-              `<option value="${at.value}" ${action.type === at.value ? 'selected' : ''}>${escapeHtml(at.label)}</option>`
-            ).join('')}
-          </select>
-          ${valueInput}
-          <button class="settings-btn settings-btn-icon" data-delete-trigger-action="${triggerIndex}:${actionIndex}" title="Delete action">\u00d7</button>
-        </div>
-      `;
-    }).join('');
+    // Build action rows using component
+    const actionRows = (trigger.actions || []).map((action, actionIndex) =>
+      ActionRow({
+        context: 'trigger',
+        parentIndex: triggerIndex,
+        actionIndex,
+        action,
+        actionTypes: ACTION_TYPES,
+        triggerOptions,
+        timerOptions,
+        captureOptions: availableCaptureGroups,
+      })
+    ).join('');
 
     // Show message if no pattern groups are defined yet
     const patternsMessage = availableGroups.length === 0
-      ? '<span class="settings-description">No pattern groups defined. Create patterns in the Patterns tab first.</span>'
-      : (patternChips || '<span class="settings-description">Select pattern groups above.</span>');
+      ? SecondaryText('No pattern groups defined. Create patterns in the Patterns tab first.')
+      : (patternChips || SecondaryText('Select pattern groups above.'));
 
-    return `
-      <div class="settings-pattern-group-card" data-trigger-index="${triggerIndex}">
-        <div class="settings-pattern-group-header">
-          <input type="checkbox" class="settings-checkbox" data-trigger-enabled="${triggerIndex}"
-                 ${trigger.enabled ? 'checked' : ''}>
-          <input type="text" class="settings-input settings-group-name-input"
-                 data-trigger-name="${triggerIndex}"
-                 value="${escapeHtml(trigger.name)}" placeholder="Trigger name">
-          <button class="settings-btn settings-btn-icon settings-btn-copy" data-copy-trigger="${triggerIndex}" title="Copy to clipboard">&#x2398;</button>
-          <button class="settings-btn settings-btn-icon" data-delete-trigger="${triggerIndex}" title="Delete trigger">\u00d7</button>
-        </div>
-
-        <div class="settings-trigger-subsection">
-          <label class="settings-label">Patterns <span class="settings-description">(OR logic - any match fires)</span></label>
-          <div class="settings-pane-pattern-chips">
-            ${patternsMessage}
-          </div>
-        </div>
-
-        <div class="settings-trigger-subsection">
-          <label class="settings-label">Conditions <span class="settings-description">(optional, AND logic)</span></label>
-          <div class="settings-trigger-conditions-list">
-            ${conditionRows || ''}
-          </div>
-          <button class="settings-btn settings-btn-secondary"
-                  data-add-trigger-condition="${triggerIndex}">+ Add Condition</button>
-        </div>
-
-        <div class="settings-trigger-subsection">
-          <label class="settings-label">Actions</label>
-          <div class="settings-trigger-actions-list">
-            ${actionRows || ''}
-          </div>
-          <button class="settings-btn settings-btn-secondary"
-                  data-add-trigger-action="${triggerIndex}">+ Add Action</button>
-        </div>
-      </div>
-    `;
+    return Card({
+      index: triggerIndex,
+      dataPrefix: 'trigger',
+      name: trigger.name,
+      enabled: trigger.enabled,
+      showEnabledCheckbox: true,
+      showCopyButton: true,
+      children: `
+        ${Subsection({
+          label: 'Patterns',
+          description: 'OR logic - any match fires',
+          children: ChipContainer({ children: patternsMessage }),
+        })}
+        ${Subsection({
+          label: 'Conditions',
+          description: 'optional, AND logic',
+          children: ConditionsList({ children: conditionRows }),
+          addButton: { label: '+ Add Condition', dataAttr: 'add-trigger-condition', index: triggerIndex },
+        })}
+        ${Subsection({
+          label: 'Actions',
+          children: ItemList({ children: actionRows }),
+          addButton: { label: '+ Add Action', dataAttr: 'add-trigger-action', index: triggerIndex },
+        })}
+      `,
+    });
   }).join('');
 
   return `
@@ -1504,10 +1463,12 @@ function bindTriggerInputs() {
         // Determine if input fields need to change
         const wasTriggerType = oldType === 'disable_trigger' || oldType === 'enable_trigger';
         const isTriggerType = newType === 'disable_trigger' || newType === 'enable_trigger';
+        const wasTimerType = oldType === 'disable_timer' || oldType === 'enable_timer';
+        const isTimerType = newType === 'disable_timer' || newType === 'enable_timer';
         const wasSetVariable = oldType === 'set_variable';
         const isSetVariable = newType === 'set_variable';
         // Re-render when switching between different input layouts
-        if (wasTriggerType !== isTriggerType || wasSetVariable !== isSetVariable) {
+        if (wasTriggerType !== isTriggerType || wasTimerType !== isTimerType || wasSetVariable !== isSetVariable) {
           // Reset fields when changing type
           actions[actionIndex].value = '';
           actions[actionIndex].name = undefined;
@@ -1806,64 +1767,71 @@ function evaluateTriggerCondition(
 }
 
 function buildTimersSection(): string {
+  // Build trigger and timer options for action dropdowns
+  const triggerOptions = currentTriggers.triggers
+    .filter(t => t.name && t.name.trim() !== '')
+    .map(t => ({ name: t.name }));
+  const timerOptions = currentTimers.timers
+    .filter(t => t.name && t.name.trim() !== '')
+    .map(t => ({ name: t.name }));
+
   const timerCards = currentTimers.timers.map((timer, timerIndex) => {
-    const commandRows = timer.commands.map((command, cmdIndex) => {
-      return `
-        <div class="settings-timer-command-row" data-timer-command="${timerIndex}:${cmdIndex}">
-          <input type="text" class="settings-input settings-timer-command-input"
-                 data-timer-cmd-value="${timerIndex}:${cmdIndex}"
-                 value="${escapeHtml(command)}" placeholder="Command to execute">
-          <button class="settings-btn settings-btn-icon" data-delete-timer-command="${timerIndex}:${cmdIndex}" title="Delete command">\u00d7</button>
-        </div>
-      `;
-    }).join('');
+    // Build action rows using component
+    const actionRows = (timer.actions || []).map((action, actionIndex) =>
+      ActionRow({
+        context: 'timer',
+        parentIndex: timerIndex,
+        actionIndex,
+        action,
+        actionTypes: TIMER_ACTION_TYPES,
+        triggerOptions,
+        timerOptions,
+      })
+    ).join('');
 
-    return `
-      <div class="settings-pattern-group-card" data-timer-index="${timerIndex}">
-        <div class="settings-pattern-group-header">
-          <input type="checkbox" class="settings-checkbox" data-timer-enabled="${timerIndex}"
-                 ${timer.enabled ? 'checked' : ''}>
-          <input type="text" class="settings-input settings-group-name-input"
-                 data-timer-name="${timerIndex}"
-                 value="${escapeHtml(timer.name)}" placeholder="Timer name">
-          <button class="settings-btn settings-btn-icon" data-delete-timer="${timerIndex}" title="Delete timer">\u00d7</button>
-        </div>
-
-        <div class="settings-trigger-subsection">
-          <label class="settings-label">Interval (seconds)</label>
-          <input type="number" class="settings-input" style="width: 120px"
-                 data-timer-interval="${timerIndex}"
-                 value="${timer.interval}" min="1" placeholder="60">
-        </div>
-
-        <div class="settings-trigger-subsection">
-          <label class="settings-label">Commands</label>
-          <div class="settings-timer-commands-list">
-            ${commandRows || ''}
-          </div>
-          <button class="settings-btn settings-btn-secondary"
-                  data-add-timer-command="${timerIndex}">+ Add Command</button>
-        </div>
-      </div>
-    `;
+    return Card({
+      index: timerIndex,
+      dataPrefix: 'timer',
+      name: timer.name,
+      enabled: timer.enabled,
+      showEnabledCheckbox: true,
+      showCopyButton: false,
+      children: `
+        ${Subsection({
+          label: 'Interval',
+          children: FormRow({
+            children: `
+              ${SecondaryText('every')}
+              <input type="number" class="settings-input" style="width: 80px"
+                     data-timer-interval="${timerIndex}"
+                     value="${timer.interval}" min="1" placeholder="60">
+              ${SecondaryText('seconds')}
+            `,
+          }),
+        })}
+        ${Subsection({
+          label: 'Actions',
+          children: ItemList({ children: actionRows }),
+          addButton: { label: '+ Add Action', dataAttr: 'add-timer-action', index: timerIndex },
+        })}
+      `,
+    });
   }).join('');
 
   return `
     <div class="settings-section">
       <h3>About Timers</h3>
       <p class="settings-description">
-        Timers execute commands automatically at specified intervals.
-        Commands run while you are connected to the MUD.
+        Timers execute actions automatically at specified intervals while connected.
       </p>
       <details class="settings-help-details">
         <summary>Timer examples</summary>
         <div class="settings-help-content">
           <ul>
-            <li><strong>Auto-save:</strong> 300 second interval, command: <code>save</code></li>
-            <li><strong>Keep-alive:</strong> 60 second interval, command: <code>look</code></li>
-            <li><strong>Check stats:</strong> 120 second interval, commands: <code>score</code>, <code>who</code></li>
+            <li><strong>Auto-save:</strong> 300s interval, action: send <code>save</code></li>
+            <li><strong>Keep-alive:</strong> 60s interval, action: send <code>look</code></li>
+            <li><strong>Toggle trigger:</strong> Enable/disable triggers on a schedule</li>
           </ul>
-          <p>Multiple commands execute in sequence each tick.</p>
         </div>
       </details>
     </div>
@@ -1919,41 +1887,69 @@ function bindTimerInputs() {
     });
   });
 
-  // Command value inputs
-  document.querySelectorAll('[data-timer-cmd-value]').forEach((input) => {
-    const el = input as HTMLInputElement;
-    const [timerStr, cmdStr] = el.dataset.timerCmdValue!.split(':');
+  // Action type selects
+  document.querySelectorAll('[data-timer-action-type]').forEach((input) => {
+    const el = input as HTMLSelectElement;
+    const [timerStr, actionStr] = el.dataset.timerActionType!.split(':');
     const timerIndex = parseInt(timerStr, 10);
-    const cmdIndex = parseInt(cmdStr, 10);
-    el.addEventListener('input', () => {
-      currentTimers.timers[timerIndex].commands[cmdIndex] = el.value;
+    const actionIndex = parseInt(actionStr, 10);
+    el.addEventListener('change', () => {
+      const actions = currentTimers.timers[timerIndex].actions;
+      if (actions) {
+        const oldType = actions[actionIndex].type;
+        const newType = el.value as TriggerActionType;
+        actions[actionIndex].type = newType;
+        // Re-render when switching between different input layouts
+        const wasTimerType = oldType === 'disable_timer' || oldType === 'enable_timer';
+        const isTimerType = newType === 'disable_timer' || newType === 'enable_timer';
+        const wasTriggerType = oldType === 'disable_trigger' || oldType === 'enable_trigger';
+        const isTriggerType = newType === 'disable_trigger' || newType === 'enable_trigger';
+        if (wasTimerType !== isTimerType || wasTriggerType !== isTriggerType) {
+          actions[actionIndex].value = '';
+          render();
+        }
+      }
     });
   });
 
-  // Delete command buttons
-  document.querySelectorAll('[data-delete-timer-command]').forEach((btn) => {
-    const el = btn as HTMLButtonElement;
-    const [timerStr, cmdStr] = el.dataset.deleteTimerCommand!.split(':');
+  // Action value inputs (can be input or select)
+  document.querySelectorAll('[data-timer-action-value]').forEach((input) => {
+    const el = input as HTMLInputElement | HTMLSelectElement;
+    const [timerStr, actionStr] = el.dataset.timerActionValue!.split(':');
     const timerIndex = parseInt(timerStr, 10);
-    const cmdIndex = parseInt(cmdStr, 10);
+    const actionIndex = parseInt(actionStr, 10);
+    const eventType = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(eventType, () => {
+      const actions = currentTimers.timers[timerIndex].actions;
+      if (actions) actions[actionIndex].value = el.value;
+    });
+  });
+
+  // Delete action buttons
+  document.querySelectorAll('[data-delete-timer-action]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const [timerStr, actionStr] = el.dataset.deleteTimerAction!.split(':');
+    const timerIndex = parseInt(timerStr, 10);
+    const actionIndex = parseInt(actionStr, 10);
     el.addEventListener('click', () => {
-      currentTimers.timers[timerIndex].commands.splice(cmdIndex, 1);
+      currentTimers.timers[timerIndex].actions?.splice(actionIndex, 1);
       render();
     });
   });
 
-  // Add command buttons
-  document.querySelectorAll('[data-add-timer-command]').forEach((btn) => {
+  // Add action buttons
+  document.querySelectorAll('[data-add-timer-action]').forEach((btn) => {
     const el = btn as HTMLButtonElement;
-    const timerIndex = parseInt(el.dataset.addTimerCommand!, 10);
+    const timerIndex = parseInt(el.dataset.addTimerAction!, 10);
     el.addEventListener('click', () => {
       const timer = currentTimers.timers[timerIndex];
-      timer.commands.push('');
+      if (!timer.actions) timer.actions = [];
+      timer.actions.push({ type: 'send', value: '' });
       render();
-      // Focus the new command input
-      const newCmdIndex = timer.commands.length - 1;
-      const cmdInput = document.querySelector(`[data-timer-cmd-value="${timerIndex}:${newCmdIndex}"]`) as HTMLInputElement;
-      if (cmdInput) cmdInput.focus();
+      // Focus the new action's value input
+      const newActionIndex = timer.actions.length - 1;
+      const valueInput = document.querySelector(`[data-timer-action-value="${timerIndex}:${newActionIndex}"]`) as HTMLInputElement;
+      if (valueInput) valueInput.focus();
     });
   });
 
@@ -1973,7 +1969,7 @@ function bindTimerInputs() {
       name: '',
       enabled: true,
       interval: 60,
-      commands: [''],
+      actions: [{ type: 'send', value: '' }],
     });
     render();
     // Focus the new timer's name input
@@ -2009,42 +2005,43 @@ function buildGaugesSection(): string {
       maxVarOptions.unshift(gauge.maxVariable);
     }
 
-    return `
-      <div class="settings-pattern-group-card" data-gauge-index="${gaugeIndex}">
-        <div class="settings-pattern-group-header">
-          <input type="text" class="settings-input settings-group-name-input"
-                 data-gauge-label="${gaugeIndex}"
-                 value="${escapeHtml(gauge.label || '')}" placeholder="Label (e.g., HP)">
-          <button class="settings-btn settings-btn-icon" data-delete-gauge="${gaugeIndex}" title="Delete gauge">\u00d7</button>
-        </div>
-
-        <div class="settings-trigger-subsection">
-          <label class="settings-label">Display</label>
-          <div class="settings-trigger-action-row">
+    return Card({
+      index: gaugeIndex,
+      dataPrefix: 'gauge',
+      name: gauge.label || '',
+      enabled: gauge.enabled !== false,
+      showEnabledCheckbox: true,
+      showCopyButton: false,
+      draggable: true,
+      placeholder: 'Label (e.g., HP)',
+      children: Subsection({
+        label: 'Display',
+        children: FormRow({
+          children: `
             <select class="settings-select" style="width: 140px" data-gauge-variable="${gaugeIndex}" title="Variable to display">
               <option value="">Select variable...</option>
               ${varOptions.map(v =>
-                `<option value="${escapeHtml(v)}" ${gauge.variable === v ? 'selected' : ''}>${escapeHtml(v)}</option>`
+                `<option value="${escapeHtml(v)}"${gauge.variable === v ? ' selected' : ''}>${escapeHtml(v)}</option>`
               ).join('')}
             </select>
-            <span style="color: #888; padding: 0 4px;">/</span>
+            <span class="settings-description" style="padding: 0 4px;">/</span>
             <select class="settings-select" style="width: 140px" data-gauge-max-variable="${gaugeIndex}" title="Max value source">
-              <option value="" ${!gauge.maxVariable ? 'selected' : ''}>static</option>
+              <option value=""${!gauge.maxVariable ? ' selected' : ''}>static</option>
               ${maxVarOptions.map(v =>
-                `<option value="${escapeHtml(v)}" ${gauge.maxVariable === v ? 'selected' : ''}>${escapeHtml(v)}</option>`
+                `<option value="${escapeHtml(v)}"${gauge.maxVariable === v ? ' selected' : ''}>${escapeHtml(v)}</option>`
               ).join('')}
             </select>
-            <input type="number" class="settings-input" style="width: 60px; ${gauge.maxVariable ? 'opacity: 0.5' : ''}"
+            <input type="number" class="settings-input" style="width: 60px;${gauge.maxVariable ? ' opacity: 0.5' : ''}"
                    data-gauge-max="${gaugeIndex}"
                    value="${gauge.max !== undefined ? gauge.max : 100}" min="1" title="Static max value"
                    ${gauge.maxVariable ? 'disabled' : ''}>
             <input type="color" class="settings-color-swatch" style="width: 32px; height: 24px; margin-left: auto;"
                    data-gauge-color="${gaugeIndex}"
                    value="${gauge.color || '#4caf50'}" title="Gauge color">
-          </div>
-        </div>
-      </div>
-    `;
+          `,
+        }),
+      }),
+    });
   }).join('');
 
   return `
@@ -2101,6 +2098,15 @@ function bindGaugeInputs() {
     });
   }
 
+  // Individual gauge enabled toggles
+  document.querySelectorAll('[data-gauge-enabled]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const index = parseInt(el.dataset.gaugeEnabled!, 10);
+    el.addEventListener('change', () => {
+      currentGauges.gauges[index].enabled = el.checked;
+    });
+  });
+
   // Gauge variable selects
   document.querySelectorAll('[data-gauge-variable]').forEach((input) => {
     const el = input as HTMLSelectElement;
@@ -2110,10 +2116,10 @@ function bindGaugeInputs() {
     });
   });
 
-  // Gauge label inputs
-  document.querySelectorAll('[data-gauge-label]').forEach((input) => {
+  // Gauge label inputs (uses data-gauge-name for consistency with Card component)
+  document.querySelectorAll('[data-gauge-name]').forEach((input) => {
     const el = input as HTMLInputElement;
-    const index = parseInt(el.dataset.gaugeLabel!, 10);
+    const index = parseInt(el.dataset.gaugeName!, 10);
     el.addEventListener('change', () => {
       currentGauges.gauges[index].label = el.value.trim();
     });
@@ -2207,6 +2213,31 @@ function bindGaugeInputs() {
       labelInput.focus();
       labelInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
+  });
+
+  // Reorder gauges with up/down buttons
+  document.querySelectorAll('[data-move-up-gauge]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const index = parseInt(el.dataset.moveUpGauge!, 10);
+    el.addEventListener('click', () => {
+      if (index > 0) {
+        const gauges = currentGauges.gauges;
+        [gauges[index - 1], gauges[index]] = [gauges[index], gauges[index - 1]];
+        render();
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-move-down-gauge]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const index = parseInt(el.dataset.moveDownGauge!, 10);
+    el.addEventListener('click', () => {
+      const gauges = currentGauges.gauges;
+      if (index < gauges.length - 1) {
+        [gauges[index], gauges[index + 1]] = [gauges[index + 1], gauges[index]];
+        render();
+      }
+    });
   });
 }
 

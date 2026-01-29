@@ -20,6 +20,7 @@ export interface GaugeConfig {
   width?: number;          // Bar width in chars (default: 10)
   color?: string;          // Custom gauge color (hex, e.g., "#4caf50")
   colors?: GaugeColors;    // Color thresholds (legacy)
+  enabled?: boolean;       // Whether the gauge is enabled (default: true)
 }
 
 export interface StatusLineConfig {
@@ -109,6 +110,8 @@ function parseYaml(content: string): GaugesConfig {
       } else if (line.match(/^\s{4}color:/)) {
         const match = line.match(/color:\s*["']?([^"'\s]+)["']?/);
         if (match) currentGauge.color = match[1];
+      } else if (line.match(/^\s{4}enabled:/)) {
+        currentGauge.enabled = line.includes('true');
       } else if (line.match(/^\s{4}colors:/)) {
         currentColors = { high: '', mid: '', low: '' };
       } else if (line.match(/^\s{6}high:/)) {
@@ -164,6 +167,9 @@ function stringifyYaml(config: GaugesConfig): string {
     }
     if (gauge.color) {
       lines.push(`    color: '${gauge.color}'`);
+    }
+    if (gauge.enabled === false) {
+      lines.push(`    enabled: false`);
     }
     if (gauge.colors) {
       lines.push('    colors:');

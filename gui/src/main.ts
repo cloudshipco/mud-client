@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import {
@@ -443,8 +444,9 @@ async function main() {
    * Uses gauge configuration from gauges.yaml
    */
   function updateGauges() {
-    // Skip if status line is disabled or no gauges configured
-    if (!currentGaugesConfig.statusLine.enabled || currentGaugesConfig.gauges.length === 0) {
+    // Skip if status line is disabled or no enabled gauges configured
+    const enabledGauges = currentGaugesConfig.gauges.filter(g => g.enabled !== false);
+    if (!currentGaugesConfig.statusLine.enabled || enabledGauges.length === 0) {
       gaugeBar.innerHTML = "";
       gaugeBar.style.display = "none";
       return;
@@ -452,6 +454,9 @@ async function main() {
 
     const gauges: string[] = [];
     for (const config of currentGaugesConfig.gauges) {
+      // Skip disabled gauges
+      if (config.enabled === false) continue;
+
       const current = currentVariables[config.variable];
       if (current === undefined) continue;
 
@@ -894,8 +899,13 @@ async function main() {
     }
   });
 
-  // Initial focus
+  // Initial focus - ensure main window has focus after floating panes open
   inputLine.focus();
+  // Small delay to ensure floating panes have been created, then refocus main window
+  setTimeout(async () => {
+    await getCurrentWindow().setFocus();
+    inputLine.focus();
+  }, 100);
 
   // Check for updates in background (after a short delay to let app settle)
   setTimeout(() => {

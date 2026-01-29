@@ -593,6 +593,29 @@
   margin-bottom: 16px;
 }
 
+/* Reorder buttons */
+.settings-reorder-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.settings-btn-reorder {
+  width: 20px !important;
+  height: 14px !important;
+  font-size: 8px !important;
+  padding: 0 !important;
+  color: rgba(255, 255, 255, 0.4);
+  line-height: 1;
+}
+
+.settings-btn-reorder:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
 .settings-pattern-group-header {
   display: flex;
   align-items: center;
@@ -751,7 +774,7 @@
   min-width: 120px;
 }
 
-.settings-trigger-actions-list {
+.settings-actions-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
