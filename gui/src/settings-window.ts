@@ -750,8 +750,8 @@ function render() {
         <button class="settings-tab ${activeTab === 'aliases' ? 'active' : ''}" data-tab="aliases">Aliases</button>
         <button class="settings-tab ${activeTab === 'patterns' ? 'active' : ''}" data-tab="patterns">Patterns</button>
         <button class="settings-tab ${activeTab === 'panes' ? 'active' : ''}" data-tab="panes">Panes</button>
-        <button class="settings-tab ${activeTab === 'notifications' ? 'active' : ''}" data-tab="notifications">Notifications</button>
         <button class="settings-tab ${activeTab === 'triggers' ? 'active' : ''}" data-tab="triggers">Triggers</button>
+        <button class="settings-tab ${activeTab === 'notifications' ? 'active' : ''}" data-tab="notifications">Notifications</button>
       </div>
       <div class="settings-content">
         ${buildTabContent()}
