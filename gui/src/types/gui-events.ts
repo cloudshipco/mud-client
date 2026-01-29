@@ -79,6 +79,11 @@ export interface GuiPanesConfigEvent {
   panes: GuiPaneConfig[];
 }
 
+export interface GuiVariablesEvent {
+  event: "variables";
+  variables: Record<string, { value: string | number; type: "string" | "number" }>;
+}
+
 export type GuiEvent =
   | GuiPaneEvent
   | GuiMainEvent
@@ -88,7 +93,8 @@ export type GuiEvent =
   | GuiClientMessageEvent
   | GuiMenuEvent
   | GuiPromptEvent
-  | GuiPanesConfigEvent;
+  | GuiPanesConfigEvent
+  | GuiVariablesEvent;
 
 /**
  * Parse a JSON line from PTY output into a GuiEvent

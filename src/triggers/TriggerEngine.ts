@@ -5,7 +5,14 @@ import type {
   TriggerAction,
   ConditionOperator,
   TriggersConfig,
+  SetVariableAction,
+  ResolvedSetVariableAction,
 } from "./TriggerConfigStore";
+
+/** Resolved action - either a standard action or a resolved set_variable with captured value */
+export type ResolvedTriggerAction =
+  | Exclude<TriggerAction, SetVariableAction>
+  | ResolvedSetVariableAction;
 
 /** Pattern groups mapping: group name -> array of regex patterns */
 export type PatternGroups = Record<string, string[]>;
@@ -110,10 +117,10 @@ export class TriggerEngine {
 
   /**
    * Evaluate a stripped line against all enabled triggers.
-   * Returns an array of actions to execute.
+   * Returns an array of resolved actions to execute (with captures resolved).
    */
-  evaluate(strippedLine: string): TriggerAction[] {
-    const actions: TriggerAction[] = [];
+  evaluate(strippedLine: string): ResolvedTriggerAction[] {
+    const actions: ResolvedTriggerAction[] = [];
 
     for (const trigger of this.compiled) {
       if (!this.isEnabled(trigger.definition)) continue;
@@ -129,14 +136,48 @@ export class TriggerEngine {
           }
         }
 
-        // Get actions (handle legacy single action field)
+        // Get actions (handle legacy single action field) and resolve captures
         const triggerActions = this.getActions(trigger.definition);
-        actions.push(...triggerActions);
+        const resolvedActions = this.resolveActions(triggerActions, match);
+        actions.push(...resolvedActions);
         break; // One match per trigger is enough (OR logic across patterns)
       }
     }
 
     return actions;
+  }
+
+  /**
+   * Resolve actions, converting set_variable actions to include captured values
+   */
+  private resolveActions(
+    actions: TriggerAction[],
+    match: RegExpExecArray,
+  ): ResolvedTriggerAction[] {
+    const resolved: ResolvedTriggerAction[] = [];
+
+    for (const action of actions) {
+      if (action.type === "set_variable") {
+        const captured = match.groups?.[action.capture];
+        if (captured !== undefined) {
+          // Auto-infer type: if it parses as a number (and isn't empty), use number
+          const parsed = parseFloat(captured);
+          const isNumber = captured.trim() !== "" && !isNaN(parsed);
+          const value = isNumber ? parsed : captured;
+          const valueType = isNumber ? "number" : "string";
+          resolved.push({
+            type: "set_variable",
+            name: action.name,
+            value,
+            valueType,
+          });
+        }
+      } else {
+        resolved.push(action);
+      }
+    }
+
+    return resolved;
   }
 
   /** Get actions from trigger, handling legacy action field */

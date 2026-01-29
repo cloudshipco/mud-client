@@ -23,18 +23,25 @@ export const CONDITION_OPERATORS: { value: ConditionOperator; label: string }[] 
   { value: 'matches', label: 'matches' },
 ];
 
-export type TriggerActionType = 'send' | 'disable_trigger' | 'enable_trigger' | 'notify';
+export type TriggerActionType = 'send' | 'disable_trigger' | 'enable_trigger' | 'notify' | 'set_variable';
 
 export const ACTION_TYPES: { value: TriggerActionType; label: string }[] = [
   { value: 'send', label: 'Send command' },
+  { value: 'set_variable', label: 'Set variable' },
   { value: 'disable_trigger', label: 'Disable trigger' },
   { value: 'enable_trigger', label: 'Enable trigger' },
   { value: 'notify', label: 'Notification' },
 ];
 
+export type VariableValueType = 'string' | 'number';
+
 export interface TriggerAction {
   type: TriggerActionType;
   value: string;
+  // For set_variable action type
+  name?: string;           // Variable name to set
+  capture?: string;        // Named capture group from pattern match
+  valueType?: VariableValueType;  // Type of value (default: string)
 }
 
 export interface TriggerCondition {
@@ -112,7 +119,10 @@ function parseYaml(content: string): TriggersConfig {
   const finishAction = () => {
     if (currentAction && currentTrigger) {
       if (!currentTrigger.actions) currentTrigger.actions = [];
-      if (currentAction.type && currentAction.value !== undefined) {
+      // set_variable actions have name/capture instead of value
+      const isValidSetVariable = currentAction.type === 'set_variable' && currentAction.name && currentAction.capture;
+      const isValidOtherAction = currentAction.type && currentAction.type !== 'set_variable' && currentAction.value !== undefined;
+      if (isValidSetVariable || isValidOtherAction) {
         currentTrigger.actions.push(currentAction as TriggerAction);
       }
       currentAction = null;
@@ -280,6 +290,24 @@ function parseYaml(content: string): TriggersConfig {
           currentAction.value = valueMatch[1];
           continue;
         }
+        // set_variable: name field
+        const nameMatch = line.match(/^\s{8}name:\s*["']?(.+?)["']?\s*$/);
+        if (nameMatch) {
+          currentAction.name = nameMatch[1];
+          continue;
+        }
+        // set_variable: capture field
+        const captureMatch = line.match(/^\s{8}capture:\s*["']?(.+?)["']?\s*$/);
+        if (captureMatch) {
+          currentAction.capture = captureMatch[1];
+          continue;
+        }
+        // set_variable: valueType field
+        const valueTypeMatch = line.match(/^\s{8}valueType:\s*["']?(.+?)["']?\s*$/);
+        if (valueTypeMatch) {
+          currentAction.valueType = valueTypeMatch[1] as VariableValueType;
+          continue;
+        }
       }
     }
   }
@@ -334,12 +362,23 @@ function stringifyYaml(config: TriggersConfig): string {
     }
 
     // Actions
-    const validActions = (trigger.actions || []).filter(a => a.value && a.value.trim() !== '');
+    const validActions = (trigger.actions || []).filter(a => {
+      if (a.type === 'set_variable') {
+        return a.name && a.capture;
+      }
+      return a.value && a.value.trim() !== '';
+    });
     if (validActions.length > 0) {
       lines.push('    actions:');
       for (const action of validActions) {
         lines.push(`      - type: ${action.type}`);
-        lines.push(`        value: '${escapeYamlString(action.value)}'`);
+        if (action.type === 'set_variable') {
+          lines.push(`        name: '${escapeYamlString(action.name || '')}'`);
+          lines.push(`        capture: '${escapeYamlString(action.capture || '')}'`);
+          // valueType is auto-inferred at runtime (number if parseable, else string)
+        } else {
+          lines.push(`        value: '${escapeYamlString(action.value)}'`);
+        }
       }
     }
 

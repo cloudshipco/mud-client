@@ -2,22 +2,45 @@
  * PaneManager - Manages multiple stacking panes and message routing
  */
 
-import type { PaneConfig } from "./types";
+import type { PaneConfig, MessagePaneConfig, TemplatePaneConfig } from "./types";
+import { isTemplatePaneConfig, isMessagePaneConfig } from "./types";
 import type { ClassifiedMessage } from "../messages/MessageClassifier";
 import { Pane } from "./Pane";
+import { TemplatePane } from "./TemplatePane";
+import type { VariableStore } from "../variables/VariableStore";
+
+/** Union type for all pane instances */
+type AnyPane = Pane | TemplatePane;
 
 export class PaneManager {
-  private panes: Pane[] = [];
+  private panes: AnyPane[] = [];
+  private variableStore: VariableStore | null = null;
 
   constructor(configs: PaneConfig[]) {
     for (const config of configs) {
       // Create panes regardless of position - GUI handles display location
       // Backend just needs to route messages to all panes
-      this.panes.push(new Pane(config));
+      if (isTemplatePaneConfig(config)) {
+        this.panes.push(new TemplatePane(config));
+      } else {
+        this.panes.push(new Pane(config as MessagePaneConfig));
+      }
     }
   }
 
-  private getEnabledPanes(): Pane[] {
+  /**
+   * Connect template panes to a VariableStore for reactive updates
+   */
+  connectVariableStore(variableStore: VariableStore): void {
+    this.variableStore = variableStore;
+    for (const pane of this.panes) {
+      if (pane instanceof TemplatePane) {
+        pane.connect(variableStore);
+      }
+    }
+  }
+
+  private getEnabledPanes(): AnyPane[] {
     return this.panes.filter((p) => p.enabled);
   }
 
@@ -75,7 +98,7 @@ export class PaneManager {
       if (pane.accepts(classified)) {
         pane.addMessage(text, classified);
         matched = true;
-        if (pane.passthrough) {
+        if (pane.getPassthrough()) {
           anyPassthrough = true;
         }
       }
@@ -97,14 +120,30 @@ export class PaneManager {
     }
   }
 
-  getPane(id: string): Pane | undefined {
+  getPane(id: string): AnyPane | undefined {
     return this.panes.find((p) => p.id === id);
+  }
+
+  /**
+   * Get a message pane by ID (returns undefined for template panes)
+   */
+  getMessagePane(id: string): Pane | undefined {
+    const pane = this.panes.find((p) => p.id === id);
+    return pane instanceof Pane ? pane : undefined;
+  }
+
+  /**
+   * Get a template pane by ID (returns undefined for message panes)
+   */
+  getTemplatePane(id: string): TemplatePane | undefined {
+    const pane = this.panes.find((p) => p.id === id);
+    return pane instanceof TemplatePane ? pane : undefined;
   }
 
   /**
    * Convert all panes to JSON-serializable format for GUI mode
    */
-  toJSON(): Array<ReturnType<Pane["toJSON"]>> {
+  toJSON(): Array<ReturnType<Pane["toJSON"]> | ReturnType<TemplatePane["toJSON"]>> {
     return this.panes.map((p) => p.toJSON());
   }
 
@@ -116,7 +155,10 @@ export class PaneManager {
     for (const config of configs) {
       const pane = this.panes.find((p) => p.id === config.id);
       if (pane) {
-        pane.updateFilter(config.filter);
+        // Only update filter for message panes
+        if (pane instanceof Pane && isMessagePaneConfig(config)) {
+          pane.updateFilter(config.filter);
+        }
         pane.setEnabled(config.enabled ?? true);
       }
     }

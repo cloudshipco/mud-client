@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { TriggerEngine, PatternGroups } from "../triggers/TriggerEngine";
+import { TriggerEngine, PatternGroups, type ResolvedTriggerAction } from "../triggers/TriggerEngine";
 import { TriggerConfigStore } from "../triggers/TriggerConfigStore";
 import type { TriggerDefinition, TriggerAction, TriggersConfig } from "../triggers/TriggerConfigStore";
 
 /** Helper to create expected send action */
-const send = (value: string): TriggerAction => ({ type: "send", value });
+const send = (value: string): ResolvedTriggerAction => ({ type: "send", value });
 
 /** Helper to create a trigger with patternGroups */
 const trigger = (

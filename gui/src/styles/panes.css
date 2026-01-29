@@ -193,6 +193,62 @@
   color: #ccc;
 }
 
+/* Gauge bar (above input line) */
+.gauge-bar-container {
+  flex-shrink: 0;
+  display: none; /* Hidden by default, shown when gauges have data */
+  justify-content: center;
+  gap: 16px;
+  padding: 4px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.gauge-bar-container .gauge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.gauge-bar-container .gauge-label {
+  color: #888;
+  min-width: 24px;
+  text-align: right;
+}
+
+.gauge-bar-container .gauge-bar {
+  width: 80px;
+  height: 10px;
+  background: #333;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.gauge-bar-container .gauge-fill {
+  height: 100%;
+  transition: width 0.2s ease-out;
+  border-radius: 3px;
+}
+
+.gauge-bar-container .gauge-high .gauge-fill {
+  background: linear-gradient(to right, #2d7a2d, #4caf50);
+}
+
+.gauge-bar-container .gauge-mid .gauge-fill {
+  background: linear-gradient(to right, #b8860b, #f0c040);
+}
+
+.gauge-bar-container .gauge-low .gauge-fill {
+  background: linear-gradient(to right, #8b0000, #d32f2f);
+}
+
+.gauge-bar-container .gauge-value {
+  color: #aaa;
+  min-width: 30px;
+  text-align: left;
+}
+
 /* Input line (fixed at bottom) */
 .input-line {
   flex-shrink: 0;
@@ -268,6 +324,64 @@
 .status-right {
   display: flex;
   gap: 16px;
+}
+
+.status-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+/* Variable gauges in status bar */
+.status-gauges {
+  display: flex;
+  gap: 12px;
+}
+
+.gauge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+}
+
+.gauge-label {
+  color: #888;
+  min-width: 20px;
+  text-align: right;
+}
+
+.gauge-bar {
+  width: 50px;
+  height: 8px;
+  background: #333;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.gauge-fill {
+  height: 100%;
+  transition: width 0.2s ease-out;
+  border-radius: 2px;
+}
+
+.gauge-high .gauge-fill {
+  background: linear-gradient(to right, #2d7a2d, #4caf50);
+}
+
+.gauge-mid .gauge-fill {
+  background: linear-gradient(to right, #b8860b, #f0c040);
+}
+
+.gauge-low .gauge-fill {
+  background: linear-gradient(to right, #8b0000, #d32f2f);
+}
+
+.gauge-value {
+  color: #aaa;
+  min-width: 25px;
+  text-align: left;
 }
 
 /* Scrollbar styling */

@@ -71,13 +71,22 @@ import {
   resetTimersConfig,
 } from './services/timers-config-store';
 import {
+  GaugesConfig,
+  GaugeConfig,
+  loadGaugesConfig,
+  saveGaugesConfig,
+  addGauge,
+  removeGauge,
+  updateGauge,
+} from './services/gauges-config-store';
+import {
   isPermissionGranted,
   requestPermission,
   sendNotification,
 } from '@tauri-apps/plugin-notification';
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager';
 
-type TabId = 'terminal' | 'config' | 'panes' | 'aliases' | 'patterns' | 'notifications' | 'triggers' | 'timers';
+type TabId = 'terminal' | 'config' | 'panes' | 'aliases' | 'patterns' | 'notifications' | 'triggers' | 'timers' | 'gauges';
 
 const FONT_FAMILIES = [
   // Bundled fonts (Monaspace)
@@ -162,6 +171,8 @@ let currentTriggers: TriggersConfig = { triggers: [] };
 let originalTriggers: TriggersConfig = { triggers: [] };
 let currentTimers: TimersConfig = { timers: [] };
 let originalTimers: TimersConfig = { timers: [] };
+let currentGauges: GaugesConfig = { gauges: [], statusLine: { enabled: true, position: 'above-input' } };
+let originalGauges: GaugesConfig = { gauges: [], statusLine: { enabled: true, position: 'above-input' } };
 let activeTab: TabId = 'terminal';
 
 // Conflict resolution state for import
@@ -715,7 +726,7 @@ async function importTriggersFromClipboard(): Promise<void> {
 }
 
 async function init() {
-  [currentSettings, currentConfig, currentPanesConfig, currentAliases, currentPatterns, currentNotifications, currentTriggers, currentTimers] = await Promise.all([
+  [currentSettings, currentConfig, currentPanesConfig, currentAliases, currentPatterns, currentNotifications, currentTriggers, currentTimers, currentGauges] = await Promise.all([
     loadSettings(),
     loadConfig(),
     loadPanesConfig(),
@@ -724,6 +735,7 @@ async function init() {
     loadNotificationsConfig(),
     loadTriggersConfig(),
     loadTimersConfig(),
+    loadGaugesConfig(),
   ]);
   originalSettings = JSON.parse(JSON.stringify(currentSettings));
   originalConfig = JSON.parse(JSON.stringify(currentConfig));
@@ -733,6 +745,7 @@ async function init() {
   originalNotifications = JSON.parse(JSON.stringify(currentNotifications));
   originalTriggers = JSON.parse(JSON.stringify(currentTriggers));
   originalTimers = JSON.parse(JSON.stringify(currentTimers));
+  originalGauges = JSON.parse(JSON.stringify(currentGauges));
   render();
 }
 
@@ -746,6 +759,7 @@ function buildTabContent(): string {
     case 'notifications': return buildNotificationsSection();
     case 'triggers': return buildTriggersSection();
     case 'timers': return buildTimersSection();
+    case 'gauges': return buildGaugesSection();
     default: return '';
   }
 }
@@ -764,6 +778,7 @@ function render() {
         <button class="settings-tab ${activeTab === 'panes' ? 'active' : ''}" data-tab="panes">Panes</button>
         <button class="settings-tab ${activeTab === 'triggers' ? 'active' : ''}" data-tab="triggers">Triggers</button>
         <button class="settings-tab ${activeTab === 'timers' ? 'active' : ''}" data-tab="timers">Timers</button>
+        <button class="settings-tab ${activeTab === 'gauges' ? 'active' : ''}" data-tab="gauges">Gauges</button>
         <button class="settings-tab ${activeTab === 'notifications' ? 'active' : ''}" data-tab="notifications">Notifications</button>
       </div>
       <div class="settings-content">
@@ -1204,21 +1219,45 @@ function buildTriggersSection(): string {
 
     const actionRows = (trigger.actions || []).map((action, actionIndex) => {
       const isTriggerAction = action.type === 'disable_trigger' || action.type === 'enable_trigger';
+      const isSetVariable = action.type === 'set_variable';
       const triggerOptions = currentTriggers.triggers
         .map((t, i) => ({ name: t.name, index: i }))
         .filter(t => t.name && t.name.trim() !== ''); // Only show named triggers
 
-      const valueInput = isTriggerAction
-        ? `<select class="settings-select settings-trigger-action-value"
+      let valueInput: string;
+      if (isSetVariable) {
+        // set_variable needs: name (variable), capture (group name)
+        // valueType is auto-inferred at runtime (number if parseable, else string)
+        // Build capture options - include current value if not in list (for backwards compat)
+        const captureOptions = [...availableCaptureGroups];
+        if (action.capture && !captureOptions.includes(action.capture)) {
+          captureOptions.unshift(action.capture);
+        }
+        valueInput = `
+          <input type="text" class="settings-input" style="width: 100px"
+                 data-trigger-action-var-name="${triggerIndex}:${actionIndex}"
+                 value="${escapeHtml(action.name || '')}" placeholder="var name" title="Variable name to set">
+          <span style="color: #888">=</span>
+          <select class="settings-select" style="width: 130px"
+                  data-trigger-action-capture="${triggerIndex}:${actionIndex}" title="Named capture group">
+            <option value="">Select capture...</option>
+            ${captureOptions.map(cap =>
+              `<option value="${escapeHtml(cap)}" ${action.capture === cap ? 'selected' : ''}>${escapeHtml(cap)}</option>`
+            ).join('')}
+          </select>`;
+      } else if (isTriggerAction) {
+        valueInput = `<select class="settings-select settings-trigger-action-value"
                   data-trigger-action-value="${triggerIndex}:${actionIndex}">
             <option value="">Select trigger...</option>
             ${triggerOptions.map(t =>
               `<option value="${escapeHtml(t.name)}" ${action.value === t.name ? 'selected' : ''}>${escapeHtml(t.name)}</option>`
             ).join('')}
-          </select>`
-        : `<input type="text" class="settings-input settings-trigger-action-value"
+          </select>`;
+      } else {
+        valueInput = `<input type="text" class="settings-input settings-trigger-action-value"
                  data-trigger-action-value="${triggerIndex}:${actionIndex}"
-                 value="${escapeHtml(action.value)}" placeholder="${action.type === 'send' ? 'command to send' : 'notification message'}">`;
+                 value="${escapeHtml(action.value || '')}" placeholder="${action.type === 'send' ? 'command to send' : 'notification message'}">`;
+      }
 
       return `
         <div class="settings-trigger-action-row" data-trigger-action="${triggerIndex}:${actionIndex}">
@@ -1462,12 +1501,26 @@ function bindTriggerInputs() {
         const oldType = actions[actionIndex].type;
         const newType = el.value as any;
         actions[actionIndex].type = newType;
-        // Clear value when switching between trigger/non-trigger types (input changes)
+        // Determine if input fields need to change
         const wasTriggerType = oldType === 'disable_trigger' || oldType === 'enable_trigger';
         const isTriggerType = newType === 'disable_trigger' || newType === 'enable_trigger';
-        if (wasTriggerType !== isTriggerType) {
+        const wasSetVariable = oldType === 'set_variable';
+        const isSetVariable = newType === 'set_variable';
+        // Re-render when switching between different input layouts
+        if (wasTriggerType !== isTriggerType || wasSetVariable !== isSetVariable) {
+          // Reset fields when changing type
           actions[actionIndex].value = '';
-          render(); // Re-render to switch between input and select
+          actions[actionIndex].name = undefined;
+          actions[actionIndex].capture = undefined;
+          render();
+          // Focus the appropriate input after re-render
+          if (isSetVariable) {
+            const varNameInput = document.querySelector(`[data-trigger-action-var-name="${triggerIndex}:${actionIndex}"]`) as HTMLInputElement;
+            if (varNameInput) varNameInput.focus();
+          } else {
+            const valueInput = document.querySelector(`[data-trigger-action-value="${triggerIndex}:${actionIndex}"]`) as HTMLInputElement | HTMLSelectElement;
+            if (valueInput) valueInput.focus();
+          }
         }
       }
     });
@@ -1485,6 +1538,31 @@ function bindTriggerInputs() {
       if (actions) actions[actionIndex].value = el.value;
     });
   });
+
+  // set_variable action: variable name input
+  document.querySelectorAll('[data-trigger-action-var-name]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const [triggerStr, actionStr] = el.dataset.triggerActionVarName!.split(':');
+    const triggerIndex = parseInt(triggerStr, 10);
+    const actionIndex = parseInt(actionStr, 10);
+    el.addEventListener('input', () => {
+      const actions = currentTriggers.triggers[triggerIndex].actions;
+      if (actions) actions[actionIndex].name = el.value;
+    });
+  });
+
+  // set_variable action: capture group select
+  document.querySelectorAll('[data-trigger-action-capture]').forEach((input) => {
+    const el = input as HTMLSelectElement;
+    const [triggerStr, actionStr] = el.dataset.triggerActionCapture!.split(':');
+    const triggerIndex = parseInt(triggerStr, 10);
+    const actionIndex = parseInt(actionStr, 10);
+    el.addEventListener('change', () => {
+      const actions = currentTriggers.triggers[triggerIndex].actions;
+      if (actions) actions[actionIndex].capture = el.value;
+    });
+  });
+
 
   // Delete action buttons
   document.querySelectorAll('[data-delete-trigger-action]').forEach((btn) => {
@@ -1654,7 +1732,13 @@ function bindTriggerInputs() {
           if (allConditionsPassed && trigger.actions && trigger.actions.length > 0) {
             html += '<div class="test-actions"><span class="test-actions-label">Actions:</span>';
             for (const action of trigger.actions) {
-              html += `<span class="test-action">${escapeHtml(action.type)}: ${escapeHtml(action.value)}</span>`;
+              if (action.type === 'set_variable') {
+                // set_variable uses name/capture instead of value
+                const capturedVal = match.groups?.[action.capture || ''] || '';
+                html += `<span class="test-action">set ${escapeHtml(action.name || '')} = ${escapeHtml(capturedVal)}</span>`;
+              } else {
+                html += `<span class="test-action">${escapeHtml(action.type)}: ${escapeHtml(action.value || '')}</span>`;
+              }
             }
             html += '</div>';
           }
@@ -1902,6 +1986,230 @@ function bindTimerInputs() {
   });
 }
 
+function buildGaugesSection(): string {
+  // Gather available variable names from set_variable trigger actions
+  const availableVariables = new Set<string>();
+  for (const trigger of currentTriggers.triggers) {
+    for (const action of trigger.actions || []) {
+      if (action.type === 'set_variable' && action.name) {
+        availableVariables.add(action.name);
+      }
+    }
+  }
+  const variableOptions = Array.from(availableVariables).sort();
+
+  const gaugeCards = currentGauges.gauges.map((gauge, gaugeIndex) => {
+    // Include current value if not in list (for backwards compat)
+    const varOptions = [...variableOptions];
+    if (gauge.variable && !varOptions.includes(gauge.variable)) {
+      varOptions.unshift(gauge.variable);
+    }
+    const maxVarOptions = [...variableOptions];
+    if (gauge.maxVariable && !maxVarOptions.includes(gauge.maxVariable)) {
+      maxVarOptions.unshift(gauge.maxVariable);
+    }
+
+    return `
+      <div class="settings-pattern-group-card" data-gauge-index="${gaugeIndex}">
+        <div class="settings-pattern-group-header">
+          <input type="text" class="settings-input settings-group-name-input"
+                 data-gauge-label="${gaugeIndex}"
+                 value="${escapeHtml(gauge.label || '')}" placeholder="Label (e.g., HP)">
+          <button class="settings-btn settings-btn-icon" data-delete-gauge="${gaugeIndex}" title="Delete gauge">\u00d7</button>
+        </div>
+
+        <div class="settings-trigger-subsection">
+          <label class="settings-label">Display</label>
+          <div class="settings-trigger-action-row">
+            <select class="settings-select" style="width: 140px" data-gauge-variable="${gaugeIndex}" title="Variable to display">
+              <option value="">Select variable...</option>
+              ${varOptions.map(v =>
+                `<option value="${escapeHtml(v)}" ${gauge.variable === v ? 'selected' : ''}>${escapeHtml(v)}</option>`
+              ).join('')}
+            </select>
+            <span style="color: #888; padding: 0 4px;">/</span>
+            <select class="settings-select" style="width: 140px" data-gauge-max-variable="${gaugeIndex}" title="Max value source">
+              <option value="" ${!gauge.maxVariable ? 'selected' : ''}>static</option>
+              ${maxVarOptions.map(v =>
+                `<option value="${escapeHtml(v)}" ${gauge.maxVariable === v ? 'selected' : ''}>${escapeHtml(v)}</option>`
+              ).join('')}
+            </select>
+            <input type="number" class="settings-input" style="width: 60px; ${gauge.maxVariable ? 'opacity: 0.5' : ''}"
+                   data-gauge-max="${gaugeIndex}"
+                   value="${gauge.max !== undefined ? gauge.max : 100}" min="1" title="Static max value"
+                   ${gauge.maxVariable ? 'disabled' : ''}>
+            <input type="color" class="settings-color-swatch" style="width: 32px; height: 24px; margin-left: auto;"
+                   data-gauge-color="${gaugeIndex}"
+                   value="${gauge.color || '#4caf50'}" title="Gauge color">
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="settings-section">
+      <h3>About Gauges</h3>
+      <p class="settings-description">
+        Gauges display captured variables (like health, mana, movement) as visual bars in the status line.
+        Variables are captured using triggers with the <code>set_variable</code> action.
+      </p>
+      <details class="settings-help-details">
+        <summary>How to set up gauges</summary>
+        <div class="settings-help-content">
+          <ol>
+            <li><strong>Create a pattern</strong> that matches your MUD's prompt with named capture groups:
+              <code>&lt;(?&lt;health&gt;\\d+)hp (?&lt;mana&gt;\\d+)mana&gt;</code></li>
+            <li><strong>Create triggers</strong> using that pattern with <code>set_variable</code> actions to capture the values</li>
+            <li><strong>Add gauges</strong> below to display those variables</li>
+          </ol>
+        </div>
+      </details>
+    </div>
+
+    <div class="settings-section">
+      <h3>Status Line</h3>
+      <p class="settings-description">
+        Gauges appear in the center of the status bar at the top of the window once variables are captured.
+      </p>
+      <div class="settings-row">
+        <label class="settings-label">Enable Status Line</label>
+        <input type="checkbox" class="settings-checkbox" id="gauges-enabled"
+               ${currentGauges.statusLine.enabled ? 'checked' : ''}>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Configured Gauges</h3>
+      ${gaugeCards || '<div class="settings-empty"><p>No gauges configured. Add a gauge to display a captured variable.</p></div>'}
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-add-group">
+        <button class="settings-btn settings-btn-secondary" id="add-gauge-btn">+ Add Gauge</button>
+      </div>
+    </div>
+  `;
+}
+
+function bindGaugeInputs() {
+  // Status line enabled toggle
+  const enabledToggle = document.getElementById('gauges-enabled') as HTMLInputElement;
+  if (enabledToggle) {
+    enabledToggle.addEventListener('change', () => {
+      currentGauges.statusLine.enabled = enabledToggle.checked;
+    });
+  }
+
+  // Gauge variable selects
+  document.querySelectorAll('[data-gauge-variable]').forEach((input) => {
+    const el = input as HTMLSelectElement;
+    const index = parseInt(el.dataset.gaugeVariable!, 10);
+    el.addEventListener('change', () => {
+      currentGauges.gauges[index].variable = el.value;
+    });
+  });
+
+  // Gauge label inputs
+  document.querySelectorAll('[data-gauge-label]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const index = parseInt(el.dataset.gaugeLabel!, 10);
+    el.addEventListener('change', () => {
+      currentGauges.gauges[index].label = el.value.trim();
+    });
+  });
+
+  // Gauge maxVariable selects
+  document.querySelectorAll('[data-gauge-max-variable]').forEach((input) => {
+    const el = input as HTMLSelectElement;
+    const index = parseInt(el.dataset.gaugeMaxVariable!, 10);
+    el.addEventListener('change', () => {
+      const value = el.value;
+      const maxInput = document.querySelector(`[data-gauge-max="${index}"]`) as HTMLInputElement;
+      if (value) {
+        currentGauges.gauges[index].maxVariable = value;
+        // Disable static max input when using variable
+        if (maxInput) {
+          maxInput.disabled = true;
+          maxInput.style.opacity = '0.5';
+        }
+      } else {
+        currentGauges.gauges[index].maxVariable = undefined;
+        // Enable static max input when using static
+        if (maxInput) {
+          maxInput.disabled = false;
+          maxInput.style.opacity = '1';
+          // Set default if empty
+          if (!maxInput.value) maxInput.value = '100';
+          currentGauges.gauges[index].max = parseInt(maxInput.value, 10) || 100;
+        }
+      }
+    });
+  });
+
+  // Gauge static max inputs
+  document.querySelectorAll('[data-gauge-max]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const index = parseInt(el.dataset.gaugeMax!, 10);
+    el.addEventListener('change', () => {
+      // Only update if not using a max variable
+      if (!currentGauges.gauges[index].maxVariable) {
+        const value = parseInt(el.value, 10);
+        if (!isNaN(value) && value > 0) {
+          currentGauges.gauges[index].max = value;
+        }
+      }
+    });
+  });
+
+  // Gauge color inputs
+  document.querySelectorAll('[data-gauge-color]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const index = parseInt(el.dataset.gaugeColor!, 10);
+    el.addEventListener('change', () => {
+      currentGauges.gauges[index].color = el.value;
+    });
+  });
+
+  // Gauge width inputs
+  document.querySelectorAll('[data-gauge-width]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const index = parseInt(el.dataset.gaugeWidth!, 10);
+    el.addEventListener('change', () => {
+      const value = parseInt(el.value, 10);
+      if (!isNaN(value) && value >= 5 && value <= 50) {
+        currentGauges.gauges[index].width = value;
+      }
+    });
+  });
+
+  // Delete gauge buttons
+  document.querySelectorAll('[data-delete-gauge]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const index = parseInt((btn as HTMLElement).dataset.deleteGauge!, 10);
+      currentGauges.gauges.splice(index, 1);
+      render();
+    });
+  });
+
+  // Add gauge button
+  document.getElementById('add-gauge-btn')?.addEventListener('click', () => {
+    currentGauges.gauges.push({
+      variable: '',
+      label: '',
+      width: 10,
+    });
+    render();
+    // Focus the new gauge's label input
+    const newIndex = currentGauges.gauges.length - 1;
+    const labelInput = document.querySelector(`[data-gauge-label="${newIndex}"]`) as HTMLInputElement;
+    if (labelInput) {
+      labelInput.focus();
+      labelInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+}
+
 function bindTabs() {
   const tabs = document.querySelectorAll('.settings-tab');
   tabs.forEach((tab) => {
@@ -2106,6 +2414,9 @@ function bindInputs() {
 
   // Timer inputs (timers tab)
   bindTimerInputs();
+
+  // Gauge inputs (gauges tab)
+  bindGaugeInputs();
 }
 
 function bindPaneInputs() {
@@ -2614,6 +2925,7 @@ function bindButtons() {
       saveNotificationsConfig(currentNotifications),
       saveTriggersConfig(currentTriggers),
       saveTimersConfig(currentTimers),
+      saveGaugesConfig(currentGauges),
     ];
     if (currentPanesConfig) {
       saves.push(savePanesConfig(currentPanesConfig));
@@ -2626,6 +2938,7 @@ function bindButtons() {
     await emitNotificationsConfigChange();
     await emitTriggersConfigChange();
     await emitTimersConfigChange();
+    await emitGaugesConfigChange();
     getCurrentWindow().close();
   });
 
@@ -2672,6 +2985,10 @@ async function emitTriggersConfigChange() {
 
 async function emitTimersConfigChange() {
   await emit('timers-config-changed', currentTimers);
+}
+
+async function emitGaugesConfigChange() {
+  await emit('gauges-config-changed', currentGauges);
 }
 
 // Handle Escape key to close

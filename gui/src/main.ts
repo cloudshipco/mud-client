@@ -13,6 +13,7 @@ import { loadSettings } from "./services/settings-store";
 import { loadConfig, AppConfig } from "./services/config-store";
 import { PanesConfig, PaneConfig, savePanesConfig, loadPanesConfig, updatePane } from "./services/panes-config-store";
 import { NotificationsConfig, loadNotificationsConfig } from "./services/notifications-config-store";
+import { GaugesConfig, loadGaugesConfig } from "./services/gauges-config-store";
 import { TerminalSettings } from "./types/settings";
 import { parseGuiEvent, GuiEvent } from "./types/gui-events";
 import { PaneRenderer, PaneMessage } from "./components/pane-renderer";
@@ -37,6 +38,12 @@ const MAX_STORED_MESSAGES = 500;
 
 // Pending update held until user explicitly runs /update
 let pendingUpdate: Awaited<ReturnType<typeof check>> | null = null;
+
+// Variables store for gauge display
+let currentVariables: Record<string, { value: string | number; type: "string" | "number" }> = {};
+
+// Gauges configuration
+let currentGaugesConfig: GaugesConfig = { gauges: [], statusLine: { enabled: true, position: 'above-input' } };
 
 /**
  * Add messages to the shared store for a pane
@@ -245,14 +252,16 @@ async function main() {
   // Just ensure it doesn't visually interfere (it's transparent anyway)
 
   // Load saved settings, config, and notifications config
-  const [settings, config, notificationsConfig, panesConfig] = await Promise.all([
+  const [settings, config, notificationsConfig, panesConfig, gaugesConfig] = await Promise.all([
     loadSettings(),
     loadConfig(),
     loadNotificationsConfig(),
     loadPanesConfig(),
+    loadGaugesConfig(),
   ]);
 
   currentPanesConfig = panesConfig;
+  currentGaugesConfig = gaugesConfig;
 
   // Open floating pane windows on startup
   if (currentPanesConfig) {
@@ -290,6 +299,11 @@ async function main() {
 
   // Create main output area
   const mainOutput = new MainOutput(appContainer);
+
+  // Create gauge bar (above input line)
+  const gaugeBar = document.createElement("div");
+  gaugeBar.className = "gauge-bar-container";
+  appContainer.appendChild(gaugeBar);
 
   // Track connection state for reconnect handling
   let isConnected = false;
@@ -422,6 +436,76 @@ async function main() {
     }
 
     statusBar.className = connected ? "status-bar" : "status-bar disconnected";
+  }
+
+  /**
+   * Update the gauges display above the input line with current variables.
+   * Uses gauge configuration from gauges.yaml
+   */
+  function updateGauges() {
+    // Skip if status line is disabled or no gauges configured
+    if (!currentGaugesConfig.statusLine.enabled || currentGaugesConfig.gauges.length === 0) {
+      gaugeBar.innerHTML = "";
+      gaugeBar.style.display = "none";
+      return;
+    }
+
+    const gauges: string[] = [];
+    for (const config of currentGaugesConfig.gauges) {
+      const current = currentVariables[config.variable];
+      if (current === undefined) continue;
+
+      const currentVal = typeof current.value === "number" ? current.value : parseFloat(String(current.value)) || 0;
+
+      // Get max value from maxVariable, static max, or default to 100
+      let maxVal = 100;
+      if (config.maxVariable) {
+        const maxVar = currentVariables[config.maxVariable];
+        if (maxVar) {
+          maxVal = typeof maxVar.value === "number" ? maxVar.value : parseFloat(String(maxVar.value)) || 100;
+        }
+      } else if (config.max !== undefined) {
+        maxVal = config.max;
+      }
+
+      const percent = maxVal > 0 ? Math.min(100, Math.max(0, (currentVal / maxVal) * 100)) : 0;
+
+      // Use custom color or threshold-based colors
+      let colorStyle = "";
+      let colorClass = "";
+      if (config.color) {
+        // Custom color - use directly
+        colorStyle = `background: ${config.color}`;
+      } else {
+        // Threshold-based colors
+        if (percent > 66) {
+          colorClass = "gauge-high";
+        } else if (percent > 33) {
+          colorClass = "gauge-mid";
+        } else {
+          colorClass = "gauge-low";
+        }
+      }
+
+      const label = config.label || config.variable;
+      gauges.push(`
+        <div class="gauge ${colorClass}" title="${label}: ${Math.floor(currentVal)}/${Math.floor(maxVal)}">
+          <span class="gauge-label">${label}</span>
+          <div class="gauge-bar">
+            <div class="gauge-fill" style="width: ${percent}%; ${colorStyle}"></div>
+          </div>
+          <span class="gauge-value">${Math.floor(currentVal)}</span>
+        </div>
+      `);
+    }
+
+    if (gauges.length > 0) {
+      gaugeBar.innerHTML = gauges.join("");
+      gaugeBar.style.display = "flex";
+    } else {
+      gaugeBar.innerHTML = "";
+      gaugeBar.style.display = "none";
+    }
   }
 
   // Handle GUI events from PTY
@@ -586,6 +670,12 @@ async function main() {
         }
         break;
       }
+      case "variables": {
+        // Update variable store and refresh gauges
+        currentVariables = event.variables;
+        updateGauges();
+        break;
+      }
     }
   }
 
@@ -662,6 +752,12 @@ async function main() {
   listen<AppConfig>("config-changed", (event) => {
     const newConfig = event.payload;
     inputLine.setInputMode(newConfig.inputMode);
+  });
+
+  // Listen for gauges config changes (from settings window)
+  listen<GaugesConfig>("gauges-config-changed", (event) => {
+    currentGaugesConfig = event.payload;
+    updateGauges();
   });
 
   // Listen for panes config changes (from settings window)

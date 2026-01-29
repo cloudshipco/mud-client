@@ -24,11 +24,30 @@ export interface TriggerCondition {
   value: string | number | (string | number)[];
 }
 
-export type TriggerActionType = "send" | "disable_trigger" | "enable_trigger" | "notify";
+export type TriggerActionType = "send" | "disable_trigger" | "enable_trigger" | "notify" | "set_variable";
 
-export interface TriggerAction {
-  type: TriggerActionType;
+/** Base action with type and value */
+export interface BaseTriggerAction {
+  type: Exclude<TriggerActionType, "set_variable">;
   value: string;
+}
+
+/** Action to set a variable from a capture group */
+export interface SetVariableAction {
+  type: "set_variable";
+  name: string;           // Variable name to set
+  capture: string;        // Named capture group from pattern match
+  valueType?: "string" | "number";  // Optional type (default: string)
+}
+
+export type TriggerAction = BaseTriggerAction | SetVariableAction;
+
+/** Resolved set_variable action with the captured value ready to apply */
+export interface ResolvedSetVariableAction {
+  type: "set_variable";
+  name: string;
+  value: string | number;
+  valueType: "string" | "number";
 }
 
 export interface TriggerDefinition {

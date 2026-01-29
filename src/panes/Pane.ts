@@ -2,7 +2,7 @@
  * Pane - Generic configurable pane for displaying filtered messages
  */
 
-import type { PaneConfig, PaneFilter } from "./types";
+import type { MessagePaneConfig, PaneFilter } from "./types";
 import type { ClassifiedMessage } from "../messages/MessageClassifier";
 
 const ESC = "\x1b";
@@ -30,7 +30,7 @@ export class Pane {
   private scrollOffset: number = 0; // 0 = bottom (most recent), positive = scrolled up
   private _hasNewContent: boolean = false; // New content arrived while scrolled
 
-  constructor(config: PaneConfig) {
+  constructor(config: MessagePaneConfig) {
     this.id = config.id;
     this.height = config.height;
     this.originalHeight = config.height;

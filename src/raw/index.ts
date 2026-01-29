@@ -11,13 +11,16 @@ import { TextPrompt } from "./TextPrompt";
 import { SettingsManager } from "../settings/Settings";
 import { PaneManager } from "../panes/PaneManager";
 import { PaneConfigStore } from "../panes/PaneConfigStore";
+import { Pane } from "../panes/Pane";
 import { PatternsConfigStore } from "../patterns/PatternsConfigStore";
 import { MessageClassifier } from "../messages/MessageClassifier";
 import { Updater } from "../update/Updater";
 import { MacroManager } from "../macro/MacroManager";
 import { TriggerConfigStore } from "../triggers/TriggerConfigStore";
-import type { TriggerAction } from "../triggers/TriggerConfigStore";
-import { TriggerEngine } from "../triggers/TriggerEngine";
+import { TriggerEngine, type ResolvedTriggerAction } from "../triggers/TriggerEngine";
+import { VariableStore } from "../variables/VariableStore";
+import { GaugeConfigStore } from "../variables/GaugeConfigStore";
+import { renderStatusLine, hasGaugeData } from "../variables/StatusLineRenderer";
 import { TimerConfigStore } from "../timers/TimerConfigStore";
 import { TimerEngine } from "../timers/TimerEngine";
 
@@ -82,6 +85,17 @@ export interface GuiPanesConfigEvent {
   panes: GuiPaneConfig[];
 }
 
+export interface GuiNotificationEvent {
+  event: "notification";
+  title: string;
+  body: string;
+}
+
+export interface GuiVariablesEvent {
+  event: "variables";
+  variables: Record<string, { value: string | number; type: "string" | "number" }>;
+}
+
 export type GuiEvent =
   | GuiPaneEvent
   | GuiMainEvent
@@ -89,7 +103,9 @@ export type GuiEvent =
   | GuiStatusEvent
   | GuiClearEvent
   | GuiClientMessageEvent
-  | GuiPanesConfigEvent;
+  | GuiPanesConfigEvent
+  | GuiNotificationEvent
+  | GuiVariablesEvent;
 
 // ANSI escape codes
 const ESC = "\x1b";
@@ -125,10 +141,22 @@ class MudClient {
   private triggerEngine: TriggerEngine;
   private timerConfigStore: TimerConfigStore;
   private timerEngine: TimerEngine;
+  private variableStore: VariableStore;
+  private gaugeConfigStore: GaugeConfigStore;
 
   // Total height of all enabled panes (0 if none enabled)
   private get totalPaneHeight(): number {
     return this.paneManager.getTotalHeight();
+  }
+
+  // Status line height (1 if enabled and has data, 0 otherwise)
+  private get statusLineHeight(): number {
+    if (!this.gaugeConfigStore.isStatusLineEnabled()) return 0;
+    const gauges = this.gaugeConfigStore.getGauges();
+    if (gauges.length === 0) return 0;
+    // Only show status line if we have gauge data
+    if (!hasGaugeData(gauges, this.variableStore)) return 0;
+    return 1;
   }
 
   private input = "";
@@ -202,6 +230,16 @@ class MudClient {
     this.triggerEngine = new TriggerEngine(this.triggerConfigStore, this.patternsConfig.getConfig().groups);
     this.timerConfigStore = new TimerConfigStore();
     this.timerEngine = new TimerEngine(this.timerConfigStore, (cmd) => this.handleCommand(cmd, true));
+    this.variableStore = new VariableStore();
+    this.gaugeConfigStore = new GaugeConfigStore();
+
+    // Connect template panes to variable store for reactive updates
+    this.paneManager.connectVariableStore(this.variableStore);
+
+    // In GUI mode, emit variable changes as events (debounced)
+    if (guiMode) {
+      this.setupVariableEmitter();
+    }
 
     // Set GUI mode on components that need it
     this.menu.setGuiMode(guiMode);
@@ -212,6 +250,32 @@ class MudClient {
     if (!this.guiMode) {
       this.setupResizeHandler();
     }
+  }
+
+  // Debounced variable change emitter for GUI mode
+  private variableEmitTimer: ReturnType<typeof setTimeout> | null = null;
+  private variableEmitPending = false;
+
+  private setupVariableEmitter(): void {
+    this.variableStore.onChange(() => {
+      if (!this.variableEmitPending) {
+        this.variableEmitPending = true;
+        this.variableEmitTimer = setTimeout(() => {
+          this.variableEmitPending = false;
+          this.emitVariables();
+        }, 100); // Debounce 100ms
+      }
+    });
+  }
+
+  private emitVariables(): void {
+    if (!this.guiMode) return;
+    const all = this.variableStore.getAll();
+    const variables: Record<string, { value: string | number; type: "string" | "number" }> = {};
+    for (const [name, variable] of Object.entries(all)) {
+      variables[name] = { value: variable.value, type: variable.type };
+    }
+    this.emitGuiEvent({ event: "variables", variables });
   }
 
   // Emit a JSON event to stdout for GUI mode
@@ -274,8 +338,9 @@ class MudClient {
 
         const termHeight = process.stdout.rows || 24;
         const panelHeight = this.totalPaneHeight;
+        const statusHeight = this.statusLineHeight;
         const mainScrollTop = panelHeight > 0 ? panelHeight + 2 : 1;
-        const reservedLines = this.inputLineCount + 1; // +1 for divider
+        const reservedLines = this.inputLineCount + 1 + statusHeight; // +1 for divider, +S for status
         const mainScrollBottom = termHeight - reservedLines;
         const scrollHeight = mainScrollBottom - mainScrollTop + 1;
 
@@ -593,15 +658,17 @@ class MudClient {
   private setupScrollRegion(): void {
     const termHeight = process.stdout.rows || 24;
     const panelHeight = this.totalPaneHeight;
+    const statusHeight = this.statusLineHeight;
     // Layout (panes at top if enabled):
     //   Row 1 to panelHeight: stacked panes (if enabled)
     //   Row panelHeight+1: divider below panes (if enabled)
     //   Row panelHeight+2 to termHeight-N-1: main output (scroll region)
+    //   Row termHeight-N-S: status line (if enabled, S=1)
     //   Row termHeight-N: divider above input
     //   Row termHeight-N+1 to termHeight: input lines (N lines)
     // When panes disabled (height=0): scroll region starts at row 1
     const mainScrollTop = panelHeight > 0 ? panelHeight + 2 : 1;
-    const reservedLines = this.inputLineCount + 1; // +1 for divider
+    const reservedLines = this.inputLineCount + 1 + statusHeight; // +1 for divider, +S for status line
     const mainScrollBottom = termHeight - reservedLines;
 
     // Set scroll region for main output
@@ -698,8 +765,9 @@ class MudClient {
 
     const termHeight = process.stdout.rows || 24;
     const panelHeight = this.totalPaneHeight;
+    const statusHeight = this.statusLineHeight;
     const mainScrollTop = panelHeight > 0 ? panelHeight + 2 : 1;
-    const reservedLines = this.inputLineCount + 1; // +1 for divider
+    const reservedLines = this.inputLineCount + 1 + statusHeight; // +1 for divider, +S for status
     const mainScrollBottom = termHeight - reservedLines;
 
     // Ensure scroll region is correct (defensive - prevents drift)
@@ -1949,8 +2017,9 @@ class MudClient {
     const termHeight = process.stdout.rows || 24;
     const termWidth = process.stdout.columns || 80;
     const panelHeight = this.totalPaneHeight;
+    const statusHeight = this.statusLineHeight;
     const mainScrollTop = panelHeight > 0 ? panelHeight + 2 : 1;
-    const reservedLines = this.inputLineCount + 1; // +1 for divider
+    const reservedLines = this.inputLineCount + 1 + statusHeight; // +1 for divider, +S for status
     const mainScrollBottom = termHeight - reservedLines;
     const scrollHeight = mainScrollBottom - mainScrollTop + 1;
 
@@ -2005,8 +2074,9 @@ class MudClient {
     } else {
       // Solo a specific pane = expand it to full height
       const termHeight = process.stdout.rows || 24;
-      const reservedLines = this.inputLineCount + 1; // +1 for divider
-      const fullHeight = termHeight - reservedLines; // Leave room for divider + input
+      const statusHeight = this.statusLineHeight;
+      const reservedLines = this.inputLineCount + 1 + statusHeight; // +1 for divider, +S for status
+      const fullHeight = termHeight - reservedLines; // Leave room for status + divider + input
 
       // Expand the focused pane to full height
       const pane = this.paneManager.getPane(focusedPaneId);
@@ -2085,7 +2155,7 @@ class MudClient {
     process.stdout.write(CURSOR_TO(termHeight, 1) + CLEAR_LINE + line);
   }
 
-  private executeTriggerAction(action: TriggerAction): void {
+  private executeTriggerAction(action: ResolvedTriggerAction): void {
     switch (action.type) {
       case "send":
         this.handleCommand(action.value, true);
@@ -2111,6 +2181,10 @@ class MudClient {
         } else {
           this.echo(`[Notify] ${action.value}`);
         }
+        break;
+      case "set_variable":
+        // Set variable in the store (value already resolved by TriggerEngine)
+        this.variableStore.set(action.name, action.value, action.valueType);
         break;
     }
   }
@@ -2235,6 +2309,8 @@ class MudClient {
         this.echo("  /macro - Record and playback command sequences");
         this.echo("  /trigger - Manage triggers (list, enable, disable, reload)");
         this.echo("  /timer - Manage timers (list, enable, disable, reload)");
+        this.echo("  /var - View/set captured variables (list, get, set, clear)");
+        this.echo("  /gauge - View gauge config and status (list, status, reload)");
         this.echo("  /config - Show all settings");
         this.echo("  /set <key> <value> - Change a setting");
         this.echo("  /clear - Clear screen");
@@ -2358,6 +2434,7 @@ class MudClient {
           const setting = parts[3];
           const value = parts[4];
           const pane = this.paneManager.getPane(paneId);
+          const isMessagePane = pane instanceof Pane;
 
           if (!pane) {
             this.echo(`Unknown pane: ${paneId}`);
@@ -2365,8 +2442,10 @@ class MudClient {
             // Show current settings
             this.echo(`Pane '${paneId}' settings:`);
             this.echo(`  height = ${pane.getOriginalHeight()}`);
-            this.echo(`  passthrough = ${pane.getPassthrough()}`);
-            this.echo(`  maxMessages = ${pane.getMaxMessages()}`);
+            if (isMessagePane) {
+              this.echo(`  passthrough = ${pane.getPassthrough()}`);
+              this.echo(`  maxMessages = ${pane.getMaxMessages()}`);
+            }
             this.echo("");
             this.echo("Usage: /pane <id> set <setting> <value>");
           } else if (setting === "height") {
@@ -2380,7 +2459,9 @@ class MudClient {
               this.refreshScreen();
             }
           } else if (setting === "passthrough") {
-            if (value !== "true" && value !== "false") {
+            if (!isMessagePane) {
+              this.echo("Passthrough is only available for message panes.");
+            } else if (value !== "true" && value !== "false") {
               this.echo("Invalid value. Must be 'true' or 'false'.");
             } else {
               const bool = value === "true";
@@ -2389,13 +2470,17 @@ class MudClient {
               this.echo(`Pane '${paneId}' passthrough set to ${bool}`);
             }
           } else if (setting === "maxMessages") {
-            const num = parseInt(value, 10);
-            if (isNaN(num) || num < 10 || num > 10000) {
-              this.echo("Invalid maxMessages. Must be a number between 10 and 10000.");
+            if (!isMessagePane) {
+              this.echo("maxMessages is only available for message panes.");
             } else {
-              pane.setMaxMessages(num);
-              this.paneConfig.setPaneMaxMessages(paneId, num);
-              this.echo(`Pane '${paneId}' maxMessages set to ${num}`);
+              const num = parseInt(value, 10);
+              if (isNaN(num) || num < 10 || num > 10000) {
+                this.echo("Invalid maxMessages. Must be a number between 10 and 10000.");
+              } else {
+                pane.setMaxMessages(num);
+                this.paneConfig.setPaneMaxMessages(paneId, num);
+                this.echo(`Pane '${paneId}' maxMessages set to ${num}`);
+              }
             }
           } else {
             this.echo(`Unknown setting: ${setting}`);
@@ -2579,6 +2664,100 @@ class MudClient {
           this.echo(`Unknown timer subcommand: ${subcommand}`);
           this.echo("Use /timer help for available commands.");
         }
+      } else if (command === "var" || command === "vars" || command === "variable" || command === "variables") {
+        const subcommand = parts[1]?.toLowerCase();
+        const varName = parts[2];
+        const varValue = parts.slice(3).join(" ");
+
+        if (!subcommand || subcommand === "help") {
+          this.echo("Variable commands:");
+          this.echo("  /var list - List all captured variables");
+          this.echo("  /var get <name> - Get a specific variable");
+          this.echo("  /var set <name> <value> - Manually set a variable");
+          this.echo("  /var clear - Clear all variables");
+        } else if (subcommand === "list" || subcommand === "ls") {
+          const all = this.variableStore.getAll();
+          const entries = Object.entries(all);
+          if (entries.length === 0) {
+            this.echo("No variables captured. Variables are set by triggers with set_variable actions.");
+          } else {
+            this.echo("Variables:");
+            for (const [name, variable] of entries) {
+              this.echo(`  ${name} = ${variable.value} (${variable.type})`);
+            }
+          }
+        } else if (subcommand === "get") {
+          if (!varName) {
+            this.echo("Usage: /var get <name>");
+          } else {
+            const variable = this.variableStore.get(varName);
+            if (variable) {
+              this.echo(`${varName} = ${variable.value} (${variable.type})`);
+            } else {
+              this.echo(`Variable '${varName}' not found.`);
+            }
+          }
+        } else if (subcommand === "set") {
+          if (!varName) {
+            this.echo("Usage: /var set <name> <value>");
+          } else {
+            // Auto-infer type
+            const parsed = parseFloat(varValue);
+            const isNumber = varValue.trim() !== "" && !isNaN(parsed);
+            const value = isNumber ? parsed : varValue;
+            this.variableStore.set(varName, value, isNumber ? "number" : "string");
+            this.echo(`Set ${varName} = ${value} (${isNumber ? "number" : "string"})`);
+          }
+        } else if (subcommand === "clear") {
+          this.variableStore.clear();
+          this.echo("All variables cleared.");
+        } else {
+          this.echo(`Unknown var subcommand: ${subcommand}`);
+          this.echo("Use /var help for available commands.");
+        }
+      } else if (command === "gauge" || command === "gauges") {
+        const subcommand = parts[1]?.toLowerCase();
+
+        if (!subcommand || subcommand === "help") {
+          this.echo("Gauge commands:");
+          this.echo("  /gauge list - List configured gauges");
+          this.echo("  /gauge status - Show gauge display status");
+          this.echo("  /gauge reload - Reload gauge config from disk");
+        } else if (subcommand === "list" || subcommand === "ls") {
+          const gauges = this.gaugeConfigStore.getGauges();
+          if (gauges.length === 0) {
+            this.echo("No gauges configured. Add gauges in Settings > Gauges.");
+          } else {
+            this.echo("Configured gauges:");
+            for (const g of gauges) {
+              const maxSrc = g.maxVariable ? `var:${g.maxVariable}` : `static:${g.max ?? 100}`;
+              this.echo(`  ${g.label || g.variable}: ${g.variable} / ${maxSrc} (width: ${g.width ?? 10})`);
+            }
+          }
+        } else if (subcommand === "status") {
+          const enabled = this.gaugeConfigStore.isStatusLineEnabled();
+          const gauges = this.gaugeConfigStore.getGauges();
+          const hasData = hasGaugeData(gauges, this.variableStore);
+          this.echo(`Status line enabled: ${enabled}`);
+          this.echo(`Gauges configured: ${gauges.length}`);
+          this.echo(`Has gauge data: ${hasData}`);
+          this.echo(`Status line height: ${this.statusLineHeight}`);
+          if (gauges.length > 0 && !hasData) {
+            this.echo("Missing variables for gauges:");
+            for (const g of gauges) {
+              if (!this.variableStore.has(g.variable)) {
+                this.echo(`  ${g.variable} (needed for ${g.label || 'gauge'})`);
+              }
+            }
+          }
+        } else if (subcommand === "reload") {
+          this.gaugeConfigStore.reload();
+          const gauges = this.gaugeConfigStore.getGauges();
+          this.echo(`Reloaded ${gauges.length} gauge(s) from disk.`);
+        } else {
+          this.echo(`Unknown gauge subcommand: ${subcommand}`);
+          this.echo("Use /gauge help for available commands.");
+        }
       } else {
         this.echo(`Unknown command: ${command}`);
       }
@@ -2629,8 +2808,9 @@ class MudClient {
 
     const termHeight = process.stdout.rows || 24;
     const panelHeight = this.totalPaneHeight;
+    const statusHeight = this.statusLineHeight;
     const mainScrollTop = panelHeight > 0 ? panelHeight + 2 : 1;
-    const reservedLines = this.inputLineCount + 1; // +1 for divider
+    const reservedLines = this.inputLineCount + 1 + statusHeight; // +1 for divider, +S for status
     const mainScrollBottom = termHeight - reservedLines;
     process.stdout.write(SET_SCROLL_REGION(mainScrollTop, mainScrollBottom));
     process.stdout.write(SAVE_CURSOR);
@@ -2674,6 +2854,7 @@ class MudClient {
     const termWidth = process.stdout.columns || 80;
     const termHeight = process.stdout.rows || 24;
     const totalPaneHeight = this.totalPaneHeight;
+    const statusHeight = this.statusLineHeight;
 
     // Calculate how many lines we need for the input
     const newLineCount = this.calculateInputLineCount();
@@ -2683,9 +2864,9 @@ class MudClient {
     if (newLineCount !== oldLineCount) {
       // If shrinking, clear the old divider and any extra input lines first
       if (newLineCount < oldLineCount) {
-        const oldDividerRow = termHeight - oldLineCount;
+        const oldDividerRow = termHeight - oldLineCount - statusHeight;
         // Clear old divider and lines that will become part of scroll region
-        for (let row = oldDividerRow; row < termHeight - newLineCount; row++) {
+        for (let row = oldDividerRow; row < termHeight - newLineCount - statusHeight; row++) {
           process.stdout.write(CURSOR_TO(row, 1) + CLEAR_LINE);
         }
       }
@@ -2693,11 +2874,13 @@ class MudClient {
       this.inputLineCount = newLineCount;
       // Re-setup scroll region with new reserved space
       const mainScrollTop = totalPaneHeight > 0 ? totalPaneHeight + 2 : 1;
-      const reservedLines = this.inputLineCount + 1; // +1 for divider
+      const reservedLines = this.inputLineCount + 1 + statusHeight; // +1 for divider, +S for status
       process.stdout.write(SET_SCROLL_REGION(mainScrollTop, termHeight - reservedLines));
     }
 
     const firstLineWidth = termWidth - this.promptText.length;
+    // Status line sits above divider
+    const statusLineRow = statusHeight > 0 ? termHeight - this.inputLineCount - 1 : 0;
     const dividerRow = termHeight - this.inputLineCount;
     const inputStartRow = dividerRow + 1;
 
@@ -2714,7 +2897,15 @@ class MudClient {
       process.stdout.write(`\x1b[38;5;238m${"─".repeat(termWidth)}\x1b[0m`);
     }
 
-    // Draw lower divider (between main output and input)
+    // Draw status line (above divider, if enabled)
+    if (statusHeight > 0) {
+      const gauges = this.gaugeConfigStore.getGauges();
+      const statusLine = renderStatusLine(gauges, this.variableStore, termWidth);
+      process.stdout.write(CURSOR_TO(statusLineRow, 1) + CLEAR_LINE);
+      process.stdout.write(statusLine);
+    }
+
+    // Draw lower divider (between main output/status and input)
     process.stdout.write(CURSOR_TO(dividerRow, 1));
     process.stdout.write(`\x1b[38;5;238m${"─".repeat(termWidth)}\x1b[0m`);
 
@@ -2780,8 +2971,9 @@ class MudClient {
     const termWidth = process.stdout.columns || 80;
     const termHeight = process.stdout.rows || 24;
     const panelHeight = this.totalPaneHeight;
+    const statusHeight = this.statusLineHeight;
     const mainScrollTop = panelHeight > 0 ? panelHeight + 2 : 1;
-    const reservedLines = this.inputLineCount + 1; // +1 for divider
+    const reservedLines = this.inputLineCount + 1 + statusHeight; // +1 for divider, +S for status
     const mainScrollBottom = termHeight - reservedLines;
     const prefix = "\x1b[36m[Client]\x1b[0m ";
     const prefixLen = 10; // "[Client] " visible length
@@ -2939,6 +3131,10 @@ class MudClient {
         "/unalias",
         "/aliases",
         "/macro",
+        "/trigger",
+        "/timer",
+        "/var",
+        "/gauge",
         "/config",
         "/set",
         "/clear",
@@ -2973,8 +3169,9 @@ class MudClient {
 
     const termHeight = process.stdout.rows || 24;
     const panelHeight = this.totalPaneHeight;
+    const statusHeight = this.statusLineHeight;
     const mainScrollTop = panelHeight > 0 ? panelHeight + 2 : 1;
-    const reservedLines = this.inputLineCount + 1; // +1 for divider
+    const reservedLines = this.inputLineCount + 1 + statusHeight; // +1 for divider, +S for status
     const mainScrollBottom = termHeight - reservedLines;
     const scrollHeight = mainScrollBottom - mainScrollTop + 1;
 
