@@ -860,6 +860,64 @@
   font-weight: 500;
 }
 
+/* Trigger tester - additional styles */
+.settings-pattern-test-result .test-warning {
+  color: #f97316;
+  font-weight: 500;
+}
+
+.settings-pattern-test-result .test-conditions {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-pattern-test-result .test-condition {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.settings-pattern-test-result .test-condition.passed .test-condition-icon {
+  color: #4ade80;
+}
+
+.settings-pattern-test-result .test-condition.failed .test-condition-icon {
+  color: #ef4444;
+}
+
+.settings-pattern-test-result .test-condition-details {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.settings-pattern-test-result .test-actions {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.settings-pattern-test-result .test-actions-label {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+}
+
+.settings-pattern-test-result .test-action {
+  padding: 3px 8px;
+  background: rgba(74, 222, 128, 0.15);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  border-radius: 4px;
+  color: #4ade80;
+  font-size: 12px;
+  font-family: 'MonaspaceNeon', monospace;
+}
+
 /* Trigger Patterns tab */
 .settings-trigger-pattern-id {
   width: 120px;

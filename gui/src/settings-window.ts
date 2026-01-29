@@ -1268,6 +1268,19 @@ function buildTriggersSection(): string {
 
   return `
     <div class="settings-section">
+      <h3>Trigger Tester</h3>
+      <p class="settings-description">Test which triggers would fire for a line of MUD output.</p>
+      <div class="settings-pattern-tester">
+        <div class="settings-row">
+          <input type="text" class="settings-input" id="trigger-test-input"
+                 placeholder="Paste MUD output here to test which triggers would fire...">
+          <button class="settings-btn settings-btn-secondary" id="trigger-test-btn">Test</button>
+        </div>
+        <div id="trigger-test-result" class="settings-pattern-test-result"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h3>About Triggers</h3>
       <p class="settings-description">
         Triggers match MUD output with patterns and automatically execute commands.
@@ -1527,6 +1540,172 @@ function bindTriggerInputs() {
   document.getElementById('import-triggers-btn')?.addEventListener('click', () => {
     importTriggersFromClipboard();
   });
+
+  // Trigger tester
+  document.getElementById('trigger-test-btn')?.addEventListener('click', () => {
+    const testInput = document.getElementById('trigger-test-input') as HTMLInputElement;
+    const resultDiv = document.getElementById('trigger-test-result');
+
+    if (!testInput || !resultDiv) return;
+
+    const testString = testInput.value;
+    if (!testString) {
+      resultDiv.innerHTML = '<span class="test-error">Please enter a test string</span>';
+      return;
+    }
+
+    const results: string[] = [];
+
+    for (const trigger of currentTriggers.triggers) {
+      if (!trigger.enabled) continue;
+
+      // Resolve patterns from pattern groups
+      const patternStrings: string[] = [];
+      for (const groupName of trigger.patternGroups) {
+        const patterns = currentPatterns.groups[groupName];
+        if (patterns) {
+          patternStrings.push(...patterns);
+        }
+      }
+
+      if (patternStrings.length === 0) continue;
+
+      // Test each pattern (OR logic)
+      for (const patternStr of patternStrings) {
+        try {
+          const regex = new RegExp(patternStr);
+          const match = regex.exec(testString);
+
+          if (!match) continue;
+
+          // Check conditions (AND logic)
+          const conditionResults: { passed: boolean; details: string }[] = [];
+          let allConditionsPassed = true;
+
+          if (trigger.conditions && trigger.conditions.length > 0) {
+            for (const condition of trigger.conditions) {
+              if (!condition.capture || condition.capture.trim() === '') continue;
+
+              const captured = match.groups?.[condition.capture];
+              if (captured === undefined) {
+                conditionResults.push({
+                  passed: false,
+                  details: `${condition.capture}: not captured`,
+                });
+                allConditionsPassed = false;
+                continue;
+              }
+
+              const passed = evaluateTriggerCondition(captured, condition.operator, condition.value);
+              const valueStr = Array.isArray(condition.value)
+                ? `[${condition.value.join(', ')}]`
+                : String(condition.value);
+              conditionResults.push({
+                passed,
+                details: `${condition.capture} (${captured}) ${condition.operator} ${valueStr}`,
+              });
+              if (!passed) allConditionsPassed = false;
+            }
+          }
+
+          // Build result HTML
+          const triggerName = trigger.name || '(unnamed)';
+          let html = `<div class="test-match-item">
+            <div class="test-match-header">
+              <span class="${allConditionsPassed ? 'test-success' : 'test-warning'}">${escapeHtml(triggerName)}</span>
+              ${allConditionsPassed ? 'would fire' : 'pattern matched but conditions failed'}
+            </div>`;
+
+          // Show captured groups
+          if (match.groups && Object.keys(match.groups).length > 0) {
+            html += '<div class="test-captures-grid">';
+            for (const [name, value] of Object.entries(match.groups)) {
+              html += `<div class="test-capture"><span class="test-capture-name">${escapeHtml(name)}</span><span class="test-capture-value">${escapeHtml(value || '')}</span></div>`;
+            }
+            html += '</div>';
+          }
+
+          // Show condition results
+          if (conditionResults.length > 0) {
+            html += '<div class="test-conditions">';
+            for (const cond of conditionResults) {
+              html += `<div class="test-condition ${cond.passed ? 'passed' : 'failed'}">
+                <span class="test-condition-icon">${cond.passed ? '\u2713' : '\u2717'}</span>
+                <span class="test-condition-details">${escapeHtml(cond.details)}</span>
+              </div>`;
+            }
+            html += '</div>';
+          }
+
+          // Show actions if trigger would fire
+          if (allConditionsPassed && trigger.actions && trigger.actions.length > 0) {
+            html += '<div class="test-actions"><span class="test-actions-label">Actions:</span>';
+            for (const action of trigger.actions) {
+              html += `<span class="test-action">${escapeHtml(action.type)}: ${escapeHtml(action.value)}</span>`;
+            }
+            html += '</div>';
+          }
+
+          html += '</div>';
+          results.push(html);
+          break; // One match per trigger is enough (OR logic across patterns)
+        } catch {
+          // Skip invalid patterns
+        }
+      }
+    }
+
+    if (results.length === 0) {
+      resultDiv.innerHTML = '<span class="test-no-match">No triggers would fire</span>';
+    } else {
+      resultDiv.innerHTML = results.join('');
+    }
+  });
+}
+
+/**
+ * Evaluate a trigger condition (mirrors TriggerEngine logic)
+ */
+function evaluateTriggerCondition(
+  captured: string,
+  operator: ConditionOperator,
+  value: string | number | (string | number)[],
+): boolean {
+  const toNumber = (val: string | number | (string | number)[]): number => {
+    if (typeof val === 'number') return val;
+    if (typeof val === 'string') return parseFloat(val) || 0;
+    return 0;
+  };
+
+  switch (operator) {
+    case 'eq':
+      return captured === String(value);
+    case 'neq':
+      return captured !== String(value);
+    case 'lt':
+      return toNumber(captured) < toNumber(value);
+    case 'gt':
+      return toNumber(captured) > toNumber(value);
+    case 'lte':
+      return toNumber(captured) <= toNumber(value);
+    case 'gte':
+      return toNumber(captured) >= toNumber(value);
+    case 'in':
+      return Array.isArray(value) && value.map(String).includes(captured);
+    case 'not_in':
+      return Array.isArray(value) && !value.map(String).includes(captured);
+    case 'contains':
+      return captured.includes(String(value));
+    case 'matches': {
+      try {
+        return new RegExp(String(value)).test(captured);
+      } catch {
+        return false;
+      }
+    }
+    default:
+      return false;
+  }
 }
 
 function bindTabs() {
