@@ -11,9 +11,9 @@ export class PaneManager {
 
   constructor(configs: PaneConfig[]) {
     for (const config of configs) {
-      if (config.position === "top") {
-        this.panes.push(new Pane(config));
-      }
+      // Create panes regardless of position - GUI handles display location
+      // Backend just needs to route messages to all panes
+      this.panes.push(new Pane(config));
     }
   }
 

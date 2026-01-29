@@ -34,12 +34,13 @@ async function main() {
   });
 
   // Listen for pane messages from the main window
-  listen<PaneMessage[]>(`pane-messages-${paneId}`, (event) => {
+  // IMPORTANT: Must await listener registration before signaling ready
+  await listen<PaneMessage[]>(`pane-messages-${paneId}`, (event) => {
     paneRenderer.addMessages(event.payload);
   });
 
   // Listen for clear events
-  listen(`pane-clear-${paneId}`, () => {
+  await listen(`pane-clear-${paneId}`, () => {
     paneRenderer.clear();
   });
 
