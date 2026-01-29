@@ -18,6 +18,8 @@ import { MacroManager } from "../macro/MacroManager";
 import { TriggerConfigStore } from "../triggers/TriggerConfigStore";
 import type { TriggerAction } from "../triggers/TriggerConfigStore";
 import { TriggerEngine } from "../triggers/TriggerEngine";
+import { TimerConfigStore } from "../timers/TimerConfigStore";
+import { TimerEngine } from "../timers/TimerEngine";
 
 // GUI mode JSON event types
 export interface GuiPaneMessage {
@@ -121,6 +123,8 @@ class MudClient {
   private macroManager: MacroManager;
   private triggerConfigStore: TriggerConfigStore;
   private triggerEngine: TriggerEngine;
+  private timerConfigStore: TimerConfigStore;
+  private timerEngine: TimerEngine;
 
   // Total height of all enabled panes (0 if none enabled)
   private get totalPaneHeight(): number {
@@ -196,6 +200,8 @@ class MudClient {
     this.macroManager = new MacroManager();
     this.triggerConfigStore = new TriggerConfigStore();
     this.triggerEngine = new TriggerEngine(this.triggerConfigStore, this.patternsConfig.getConfig().groups);
+    this.timerConfigStore = new TimerConfigStore();
+    this.timerEngine = new TimerEngine(this.timerConfigStore, (cmd) => this.handleCommand(cmd, true));
 
     // Set GUI mode on components that need it
     this.menu.setGuiMode(guiMode);
@@ -2228,6 +2234,7 @@ class MudClient {
         this.echo("  /aliases - List all aliases");
         this.echo("  /macro - Record and playback command sequences");
         this.echo("  /trigger - Manage triggers (list, enable, disable, reload)");
+        this.echo("  /timer - Manage timers (list, enable, disable, reload)");
         this.echo("  /config - Show all settings");
         this.echo("  /set <key> <value> - Change a setting");
         this.echo("  /clear - Clear screen");
@@ -2526,6 +2533,51 @@ class MudClient {
         } else {
           this.echo(`Unknown trigger subcommand: ${subcommand}`);
           this.echo("Use /trigger help for available commands.");
+        }
+      } else if (command === "timer") {
+        const subcommand = parts[1]?.toLowerCase();
+        const timerName = parts[2];
+
+        if (!subcommand || subcommand === "help") {
+          this.echo("Timer commands:");
+          this.echo("  /timer list - List all timers");
+          this.echo("  /timer enable <name> - Enable a timer");
+          this.echo("  /timer disable <name> - Disable a timer");
+          this.echo("  /timer reload - Reload timers from disk");
+        } else if (subcommand === "list" || subcommand === "ls") {
+          const timers = this.timerEngine.listTimers();
+          if (timers.length === 0) {
+            this.echo("No timers defined. Add timers to ~/.config/mud-client/timers.yaml");
+          } else {
+            this.echo("Timers:");
+            for (const t of timers) {
+              const status = t.enabled ? "enabled" : "disabled";
+              this.echo(`  ${t.name} [${status}] (${t.interval}s, ${t.commandCount} commands)`);
+            }
+          }
+        } else if (subcommand === "enable") {
+          if (!timerName) {
+            this.echo("Usage: /timer enable <name>");
+          } else if (this.timerEngine.setEnabled(timerName, true)) {
+            this.echo(`Timer '${timerName}' enabled.`);
+          } else {
+            this.echo(`Timer '${timerName}' not found.`);
+          }
+        } else if (subcommand === "disable") {
+          if (!timerName) {
+            this.echo("Usage: /timer disable <name>");
+          } else if (this.timerEngine.setEnabled(timerName, false)) {
+            this.echo(`Timer '${timerName}' disabled.`);
+          } else {
+            this.echo(`Timer '${timerName}' not found.`);
+          }
+        } else if (subcommand === "reload") {
+          this.timerEngine.reload();
+          const timers = this.timerEngine.listTimers();
+          this.echo(`Reloaded ${timers.length} timer(s) from disk.`);
+        } else {
+          this.echo(`Unknown timer subcommand: ${subcommand}`);
+          this.echo("Use /timer help for available commands.");
         }
       } else {
         this.echo(`Unknown command: ${command}`);
@@ -2958,6 +3010,7 @@ class MudClient {
     }
     this.client.disconnect();
     this.charManager.save();
+    this.timerEngine.cleanup();
     process.stdout.write("\r\n");
   }
 }

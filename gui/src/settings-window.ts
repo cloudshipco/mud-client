@@ -64,13 +64,20 @@ import {
   resetTriggersConfig,
 } from './services/triggers-config-store';
 import {
+  TimersConfig,
+  TimerDefinition,
+  loadTimersConfig,
+  saveTimersConfig,
+  resetTimersConfig,
+} from './services/timers-config-store';
+import {
   isPermissionGranted,
   requestPermission,
   sendNotification,
 } from '@tauri-apps/plugin-notification';
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager';
 
-type TabId = 'terminal' | 'config' | 'panes' | 'aliases' | 'patterns' | 'notifications' | 'triggers';
+type TabId = 'terminal' | 'config' | 'panes' | 'aliases' | 'patterns' | 'notifications' | 'triggers' | 'timers';
 
 const FONT_FAMILIES = [
   // Bundled fonts (Monaspace)
@@ -153,6 +160,8 @@ let currentNotifications: NotificationsConfig = { enabled: true, groups: [] };
 let originalNotifications: NotificationsConfig = { enabled: true, groups: [] };
 let currentTriggers: TriggersConfig = { triggers: [] };
 let originalTriggers: TriggersConfig = { triggers: [] };
+let currentTimers: TimersConfig = { timers: [] };
+let originalTimers: TimersConfig = { timers: [] };
 let activeTab: TabId = 'terminal';
 
 // Conflict resolution state for import
@@ -706,7 +715,7 @@ async function importTriggersFromClipboard(): Promise<void> {
 }
 
 async function init() {
-  [currentSettings, currentConfig, currentPanesConfig, currentAliases, currentPatterns, currentNotifications, currentTriggers] = await Promise.all([
+  [currentSettings, currentConfig, currentPanesConfig, currentAliases, currentPatterns, currentNotifications, currentTriggers, currentTimers] = await Promise.all([
     loadSettings(),
     loadConfig(),
     loadPanesConfig(),
@@ -714,6 +723,7 @@ async function init() {
     loadPatternsConfig(),
     loadNotificationsConfig(),
     loadTriggersConfig(),
+    loadTimersConfig(),
   ]);
   originalSettings = JSON.parse(JSON.stringify(currentSettings));
   originalConfig = JSON.parse(JSON.stringify(currentConfig));
@@ -722,6 +732,7 @@ async function init() {
   originalPatterns = JSON.parse(JSON.stringify(currentPatterns));
   originalNotifications = JSON.parse(JSON.stringify(currentNotifications));
   originalTriggers = JSON.parse(JSON.stringify(currentTriggers));
+  originalTimers = JSON.parse(JSON.stringify(currentTimers));
   render();
 }
 
@@ -734,6 +745,7 @@ function buildTabContent(): string {
     case 'patterns': return buildPatternsSection();
     case 'notifications': return buildNotificationsSection();
     case 'triggers': return buildTriggersSection();
+    case 'timers': return buildTimersSection();
     default: return '';
   }
 }
@@ -751,6 +763,7 @@ function render() {
         <button class="settings-tab ${activeTab === 'patterns' ? 'active' : ''}" data-tab="patterns">Patterns</button>
         <button class="settings-tab ${activeTab === 'panes' ? 'active' : ''}" data-tab="panes">Panes</button>
         <button class="settings-tab ${activeTab === 'triggers' ? 'active' : ''}" data-tab="triggers">Triggers</button>
+        <button class="settings-tab ${activeTab === 'timers' ? 'active' : ''}" data-tab="timers">Timers</button>
         <button class="settings-tab ${activeTab === 'notifications' ? 'active' : ''}" data-tab="notifications">Notifications</button>
       </div>
       <div class="settings-content">
@@ -1708,6 +1721,187 @@ function evaluateTriggerCondition(
   }
 }
 
+function buildTimersSection(): string {
+  const timerCards = currentTimers.timers.map((timer, timerIndex) => {
+    const commandRows = timer.commands.map((command, cmdIndex) => {
+      return `
+        <div class="settings-timer-command-row" data-timer-command="${timerIndex}:${cmdIndex}">
+          <input type="text" class="settings-input settings-timer-command-input"
+                 data-timer-cmd-value="${timerIndex}:${cmdIndex}"
+                 value="${escapeHtml(command)}" placeholder="Command to execute">
+          <button class="settings-btn settings-btn-icon" data-delete-timer-command="${timerIndex}:${cmdIndex}" title="Delete command">\u00d7</button>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="settings-pattern-group-card" data-timer-index="${timerIndex}">
+        <div class="settings-pattern-group-header">
+          <input type="checkbox" class="settings-checkbox" data-timer-enabled="${timerIndex}"
+                 ${timer.enabled ? 'checked' : ''}>
+          <input type="text" class="settings-input settings-group-name-input"
+                 data-timer-name="${timerIndex}"
+                 value="${escapeHtml(timer.name)}" placeholder="Timer name">
+          <button class="settings-btn settings-btn-icon" data-delete-timer="${timerIndex}" title="Delete timer">\u00d7</button>
+        </div>
+
+        <div class="settings-trigger-subsection">
+          <label class="settings-label">Interval (seconds)</label>
+          <input type="number" class="settings-input" style="width: 120px"
+                 data-timer-interval="${timerIndex}"
+                 value="${timer.interval}" min="1" placeholder="60">
+        </div>
+
+        <div class="settings-trigger-subsection">
+          <label class="settings-label">Commands</label>
+          <div class="settings-timer-commands-list">
+            ${commandRows || ''}
+          </div>
+          <button class="settings-btn settings-btn-secondary"
+                  data-add-timer-command="${timerIndex}">+ Add Command</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="settings-section">
+      <h3>About Timers</h3>
+      <p class="settings-description">
+        Timers execute commands automatically at specified intervals.
+        Commands run while you are connected to the MUD.
+      </p>
+      <details class="settings-help-details">
+        <summary>Timer examples</summary>
+        <div class="settings-help-content">
+          <ul>
+            <li><strong>Auto-save:</strong> 300 second interval, command: <code>save</code></li>
+            <li><strong>Keep-alive:</strong> 60 second interval, command: <code>look</code></li>
+            <li><strong>Check stats:</strong> 120 second interval, commands: <code>score</code>, <code>who</code></li>
+          </ul>
+          <p>Multiple commands execute in sequence each tick.</p>
+        </div>
+      </details>
+    </div>
+
+    <div class="settings-section">
+      <h3>Timers</h3>
+      ${timerCards || '<div class="settings-empty"><p>No timers defined.</p></div>'}
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-add-group">
+        <button class="settings-btn settings-btn-secondary" id="add-timer-btn">+ Add Timer</button>
+      </div>
+    </div>
+  `;
+}
+
+function bindTimerInputs() {
+  // Enable/disable toggles
+  document.querySelectorAll('[data-timer-enabled]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const index = parseInt(el.dataset.timerEnabled!, 10);
+    el.addEventListener('change', () => {
+      currentTimers.timers[index].enabled = el.checked;
+    });
+  });
+
+  // Timer name inputs
+  document.querySelectorAll('[data-timer-name]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const index = parseInt(el.dataset.timerName!, 10);
+    el.addEventListener('change', () => {
+      const name = el.value.trim();
+      if (name) {
+        currentTimers.timers[index].name = name;
+      } else {
+        el.value = currentTimers.timers[index].name;
+      }
+    });
+  });
+
+  // Timer interval inputs
+  document.querySelectorAll('[data-timer-interval]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const index = parseInt(el.dataset.timerInterval!, 10);
+    el.addEventListener('change', () => {
+      const interval = parseInt(el.value, 10);
+      if (interval > 0) {
+        currentTimers.timers[index].interval = interval;
+      } else {
+        el.value = String(currentTimers.timers[index].interval);
+      }
+    });
+  });
+
+  // Command value inputs
+  document.querySelectorAll('[data-timer-cmd-value]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const [timerStr, cmdStr] = el.dataset.timerCmdValue!.split(':');
+    const timerIndex = parseInt(timerStr, 10);
+    const cmdIndex = parseInt(cmdStr, 10);
+    el.addEventListener('input', () => {
+      currentTimers.timers[timerIndex].commands[cmdIndex] = el.value;
+    });
+  });
+
+  // Delete command buttons
+  document.querySelectorAll('[data-delete-timer-command]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const [timerStr, cmdStr] = el.dataset.deleteTimerCommand!.split(':');
+    const timerIndex = parseInt(timerStr, 10);
+    const cmdIndex = parseInt(cmdStr, 10);
+    el.addEventListener('click', () => {
+      currentTimers.timers[timerIndex].commands.splice(cmdIndex, 1);
+      render();
+    });
+  });
+
+  // Add command buttons
+  document.querySelectorAll('[data-add-timer-command]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const timerIndex = parseInt(el.dataset.addTimerCommand!, 10);
+    el.addEventListener('click', () => {
+      const timer = currentTimers.timers[timerIndex];
+      timer.commands.push('');
+      render();
+      // Focus the new command input
+      const newCmdIndex = timer.commands.length - 1;
+      const cmdInput = document.querySelector(`[data-timer-cmd-value="${timerIndex}:${newCmdIndex}"]`) as HTMLInputElement;
+      if (cmdInput) cmdInput.focus();
+    });
+  });
+
+  // Delete timer buttons
+  document.querySelectorAll('[data-delete-timer]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const timerIndex = parseInt(el.dataset.deleteTimer!, 10);
+    el.addEventListener('click', () => {
+      currentTimers.timers.splice(timerIndex, 1);
+      render();
+    });
+  });
+
+  // Add timer button
+  document.getElementById('add-timer-btn')?.addEventListener('click', () => {
+    currentTimers.timers.push({
+      name: '',
+      enabled: true,
+      interval: 60,
+      commands: [''],
+    });
+    render();
+    // Focus the new timer's name input
+    const newIndex = currentTimers.timers.length - 1;
+    const nameInput = document.querySelector(`[data-timer-name="${newIndex}"]`) as HTMLInputElement;
+    if (nameInput) {
+      nameInput.focus();
+      nameInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+}
+
 function bindTabs() {
   const tabs = document.querySelectorAll('.settings-tab');
   tabs.forEach((tab) => {
@@ -1909,6 +2103,9 @@ function bindInputs() {
 
   // Trigger inputs (triggers tab)
   bindTriggerInputs();
+
+  // Timer inputs (timers tab)
+  bindTimerInputs();
 }
 
 function bindPaneInputs() {
@@ -2416,6 +2613,7 @@ function bindButtons() {
       savePatternsConfig(currentPatterns),
       saveNotificationsConfig(currentNotifications),
       saveTriggersConfig(currentTriggers),
+      saveTimersConfig(currentTimers),
     ];
     if (currentPanesConfig) {
       saves.push(savePanesConfig(currentPanesConfig));
@@ -2427,6 +2625,7 @@ function bindButtons() {
     await emitPatternsConfigChange();
     await emitNotificationsConfigChange();
     await emitTriggersConfigChange();
+    await emitTimersConfigChange();
     getCurrentWindow().close();
   });
 
@@ -2469,6 +2668,10 @@ async function emitNotificationsConfigChange() {
 
 async function emitTriggersConfigChange() {
   await emit('triggers-config-changed', currentTriggers);
+}
+
+async function emitTimersConfigChange() {
+  await emit('timers-config-changed', currentTimers);
 }
 
 // Handle Escape key to close

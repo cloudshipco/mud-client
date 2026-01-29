@@ -159,7 +159,7 @@ fn open_settings_window(app: &AppHandle) {
         WebviewUrl::App("settings.html".into()),
     )
     .title("Settings")
-    .inner_size(560.0, 820.0)
+    .inner_size(720.0, 820.0)
     .resizable(true)
     .minimizable(false)
     .center();
