@@ -1,10 +1,12 @@
 import { TimerConfigStore } from "./TimerConfigStore";
-import type { TimerDefinition, TimersConfig } from "./TimerConfigStore";
+import type { TimerDefinition, TimersConfig, TimerAction } from "./TimerConfigStore";
 
 interface RunningTimer {
   definition: TimerDefinition;
   intervalId: ReturnType<typeof setInterval>;
 }
+
+export type TimerActionCallback = (action: TimerAction) => void;
 
 export class TimerEngine {
   private store: TimerConfigStore;
@@ -12,11 +14,11 @@ export class TimerEngine {
   /** Runtime enable/disable overrides (cleared on reload) */
   private runtimeEnabled: Map<string, boolean> = new Map();
   private configHash: string = "";
-  private commandCallback: (command: string) => void;
+  private actionCallback: TimerActionCallback;
 
-  constructor(store: TimerConfigStore, commandCallback: (command: string) => void) {
+  constructor(store: TimerConfigStore, actionCallback: TimerActionCallback) {
     this.store = store;
-    this.commandCallback = commandCallback;
+    this.actionCallback = actionCallback;
     const config = store.getConfig();
     this.configHash = this.computeConfigHash(config);
     this.startTimersFromConfig(config);
@@ -64,8 +66,17 @@ export class TimerEngine {
       // Re-check enabled state each tick
       if (!this.isEnabled(timer)) return;
 
-      for (const command of timer.commands) {
-        this.commandCallback(command);
+      // Execute actions (or legacy commands)
+      const actions = timer.actions || [];
+      if (actions.length > 0) {
+        for (const action of actions) {
+          this.actionCallback(action);
+        }
+      } else if (timer.commands && timer.commands.length > 0) {
+        // Legacy commands support
+        for (const command of timer.commands) {
+          this.actionCallback({ type: "send", value: command });
+        }
       }
     }, intervalMs);
 
@@ -122,13 +133,13 @@ export class TimerEngine {
   }
 
   /** List all timers with their effective enabled state */
-  listTimers(): { name: string; enabled: boolean; interval: number; commandCount: number }[] {
+  listTimers(): { name: string; enabled: boolean; interval: number; actionCount: number }[] {
     const config = this.store.getConfig();
     return config.timers.map((t) => ({
       name: t.name,
       enabled: this.isEnabled(t),
       interval: t.interval,
-      commandCount: t.commands.length,
+      actionCount: (t.actions || t.commands || []).length,
     }));
   }
 

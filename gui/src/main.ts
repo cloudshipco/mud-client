@@ -208,9 +208,21 @@ async function checkForUpdates(showMessage: (msg: string) => void) {
 }
 
 async function installPendingUpdate(showMessage: (msg: string) => void) {
+  // If no pending update, check for one now
   if (!pendingUpdate) {
-    showMessage("No update available.");
-    return;
+    showMessage("Checking for updates...");
+    try {
+      const update = await check();
+      if (update) {
+        pendingUpdate = update;
+      } else {
+        showMessage("Already up to date.");
+        return;
+      }
+    } catch (error) {
+      showMessage(`Update check failed: ${error}`);
+      return;
+    }
   }
   const update = pendingUpdate;
   pendingUpdate = null;
@@ -319,7 +331,9 @@ async function main() {
         return;
       }
       // Intercept /update command
-      if (data.replace(/\r?\n?$/, "") === "/update") {
+      // Strip leading Ctrl+U (\x15) and trailing CR/LF before comparing
+      const command = data.replace(/^\x15/, "").replace(/\r?\n?$/, "");
+      if (command === "/update") {
         installPendingUpdate((msg) => mainOutput.addClientMessage(msg));
         return;
       }

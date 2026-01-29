@@ -23,13 +23,15 @@ export const CONDITION_OPERATORS: { value: ConditionOperator; label: string }[] 
   { value: 'matches', label: 'matches' },
 ];
 
-export type TriggerActionType = 'send' | 'disable_trigger' | 'enable_trigger' | 'notify' | 'set_variable';
+export type TriggerActionType = 'send' | 'disable_trigger' | 'enable_trigger' | 'disable_timer' | 'enable_timer' | 'notify' | 'set_variable';
 
 export const ACTION_TYPES: { value: TriggerActionType; label: string }[] = [
   { value: 'send', label: 'Send command' },
   { value: 'set_variable', label: 'Set variable' },
   { value: 'disable_trigger', label: 'Disable trigger' },
   { value: 'enable_trigger', label: 'Enable trigger' },
+  { value: 'disable_timer', label: 'Disable timer' },
+  { value: 'enable_timer', label: 'Enable timer' },
   { value: 'notify', label: 'Notification' },
 ];
 

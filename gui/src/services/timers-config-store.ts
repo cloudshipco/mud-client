@@ -5,12 +5,17 @@
 
 import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs';
 import { join, homeDir } from '@tauri-apps/api/path';
+import type { TriggerAction, TriggerActionType } from './triggers-config-store';
+
+export type { TriggerAction, TriggerActionType };
 
 export interface TimerDefinition {
   name: string;
   enabled: boolean;
   interval: number;      // seconds
-  commands: string[];    // commands to execute each tick
+  actions: TriggerAction[];  // actions to execute each tick
+  /** @deprecated Use actions array instead */
+  commands?: string[];
 }
 
 export interface TimersConfig {
@@ -34,6 +39,10 @@ async function getTimersConfigPath(): Promise<string> {
  *     - name: auto-save
  *       enabled: true
  *       interval: 300
+ *       actions:
+ *         - type: send
+ *           value: save
+ *       # Legacy format also supported:
  *       commands:
  *         - save
  */
@@ -41,20 +50,42 @@ function parseYaml(content: string): TimersConfig {
   const lines = content.split('\n');
   const timers: TimerDefinition[] = [];
 
-  let currentTimer: Partial<TimerDefinition> | null = null;
-  let inCommands = false;
+  let currentTimer: Partial<TimerDefinition & { commands?: string[] }> | null = null;
+  let currentAction: Partial<TriggerAction> | null = null;
+  let listContext: 'commands' | 'actions' | null = null;
+
+  const finishAction = () => {
+    if (currentAction && currentTimer) {
+      if (!currentTimer.actions) currentTimer.actions = [];
+      // set_variable actions need name/capture, others need value
+      if (currentAction.type === 'set_variable') {
+        if (currentAction.name && currentAction.capture) {
+          currentTimer.actions.push(currentAction as TriggerAction);
+        }
+      } else if (currentAction.type && currentAction.value !== undefined) {
+        currentTimer.actions.push(currentAction as TriggerAction);
+      }
+      currentAction = null;
+    }
+  };
 
   const finishTimer = () => {
+    finishAction();
     if (currentTimer && currentTimer.name) {
+      // Convert legacy commands to actions
+      let actions = currentTimer.actions || [];
+      if (actions.length === 0 && currentTimer.commands && currentTimer.commands.length > 0) {
+        actions = currentTimer.commands.map(cmd => ({ type: 'send' as TriggerActionType, value: cmd }));
+      }
       timers.push({
         name: currentTimer.name,
         enabled: currentTimer.enabled !== false,
         interval: typeof currentTimer.interval === 'number' ? currentTimer.interval : 60,
-        commands: currentTimer.commands || [],
+        actions,
       });
     }
     currentTimer = null;
-    inCommands = false;
+    listContext = null;
   };
 
   for (const line of lines) {
@@ -68,8 +99,8 @@ function parseYaml(content: string): TimersConfig {
     const newTimerMatch = line.match(/^  - name:\s*["']?(.+?)["']?\s*$/);
     if (newTimerMatch) {
       finishTimer();
-      currentTimer = { name: newTimerMatch[1], commands: [] };
-      inCommands = false;
+      currentTimer = { name: newTimerMatch[1], actions: [], commands: [] };
+      listContext = null;
       continue;
     }
 
@@ -84,26 +115,62 @@ function parseYaml(content: string): TimersConfig {
       switch (key) {
         case 'enabled':
           currentTimer.enabled = value !== 'false';
-          inCommands = false;
+          listContext = null;
           continue;
         case 'interval':
           currentTimer.interval = parseInt(value, 10) || 60;
-          inCommands = false;
+          listContext = null;
           continue;
         case 'commands':
-          inCommands = true;
+          // Legacy format
+          listContext = 'commands';
           if (!currentTimer.commands) currentTimer.commands = [];
+          continue;
+        case 'actions':
+          listContext = 'actions';
           continue;
       }
     }
 
-    // Command list items at 6-space indent
-    if (inCommands) {
+    // Legacy command list items at 6-space indent
+    if (listContext === 'commands') {
       const commandMatch = line.match(/^\s{6}-\s*["']?(.+?)["']?\s*$/);
       if (commandMatch) {
         if (!currentTimer.commands) currentTimer.commands = [];
         currentTimer.commands.push(commandMatch[1]);
         continue;
+      }
+    }
+
+    // Actions list
+    if (listContext === 'actions') {
+      // New action: "      - type: send"
+      const actionStartMatch = line.match(/^\s{6}- type:\s*["']?(.+?)["']?\s*$/);
+      if (actionStartMatch) {
+        finishAction();
+        currentAction = { type: actionStartMatch[1] as TriggerActionType };
+        continue;
+      }
+
+      if (currentAction) {
+        // Action value
+        const valueMatch = line.match(/^\s{8}value:\s*["']?(.+?)["']?\s*$/);
+        if (valueMatch) {
+          currentAction.value = valueMatch[1];
+          continue;
+        }
+        // set_variable: name field
+        const nameMatch = line.match(/^\s{8}name:\s*["']?(.+?)["']?\s*$/);
+        if (nameMatch) {
+          currentAction.name = nameMatch[1];
+          continue;
+        }
+        // set_variable: capture field
+        const captureMatch = line.match(/^\s{8}capture:\s*["']?(.+?)["']?\s*$/);
+        if (captureMatch) {
+          currentAction.capture = captureMatch[1];
+          continue;
+        }
       }
     }
   }
@@ -129,12 +196,23 @@ function stringifyYaml(config: TimersConfig): string {
     lines.push(`    enabled: ${timer.enabled}`);
     lines.push(`    interval: ${timer.interval}`);
 
-    lines.push('    commands:');
-    if (timer.commands.length === 0) {
-      lines.push('      []');
-    } else {
-      for (const command of timer.commands) {
-        lines.push(`      - '${escapeYamlString(command)}'`);
+    // Write actions
+    const validActions = (timer.actions || []).filter(a => {
+      if (a.type === 'set_variable') {
+        return a.name && a.capture;
+      }
+      return a.value && a.value.trim() !== '';
+    });
+    if (validActions.length > 0) {
+      lines.push('    actions:');
+      for (const action of validActions) {
+        lines.push(`      - type: ${action.type}`);
+        if (action.type === 'set_variable') {
+          lines.push(`        name: '${escapeYamlString(action.name || '')}'`);
+          lines.push(`        capture: '${escapeYamlString(action.capture || '')}'`);
+        } else {
+          lines.push(`        value: '${escapeYamlString(action.value)}'`);
+        }
       }
     }
   }

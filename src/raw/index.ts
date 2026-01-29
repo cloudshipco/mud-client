@@ -2493,15 +2493,21 @@ class MudClient {
         }
       } else if (command === "version") {
         const version = this.updater.getCurrentVersion();
-        const env = this.updater.detectEnvironment();
         this.echo(`mud-client v${version}`);
-        this.echo(`Environment: ${env}`);
-        if (env === "git") {
-          this.echo("Update via: /update (runs git pull)");
-        } else if (env === "binary") {
-          this.echo("Update via: /update (downloads new binary)");
+        if (!this.guiMode) {
+          const env = this.updater.detectEnvironment();
+          this.echo(`Environment: ${env}`);
+          if (env === "git") {
+            this.echo("Update via: /update (runs git pull)");
+          } else if (env === "binary") {
+            this.echo("Update via: /update (downloads new binary)");
+          }
         }
       } else if (command === "update") {
+        if (this.guiMode) {
+          this.echo("Updates are handled by the GUI. Use the GUI's /update command.");
+          return;
+        }
         const checkOnly = parts[1] === "check";
         this.handleUpdate(checkOnly);
       } else if (command === "macro" || command === "macros") {
