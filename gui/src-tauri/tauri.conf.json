@@ -2,13 +2,13 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Twilite",
   "identifier": "com.cloudship.twilite",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "plugins": {
     "updater": {
       "endpoints": [
         "https://github.com/cloudshipco/mud-client/releases/latest/download/latest.json"
       ],
-      "pubkey": "RWR76e3nYoT2oo7iXIHqqz4yPB/mgvZdFMcQeZtnMUoH8K2DmT75+ClQ"
+      "pubkey": "RWT/+XUwTB5RpAs67G5l53/1NN9JGgIooMLix/9XHdM1xb3MysP28Fg2"
     }
   },
   "build": {
