@@ -863,9 +863,24 @@ async function main() {
     applyThemeColors(newSettings.theme);
   }
 
-  // Global key handling for menus, prompts, and scrolling
+  // Global key handling for menus, prompts, scrolling, and search
   // Note: Cmd/Ctrl+, for settings is handled by the native menu accelerator
   window.addEventListener("keydown", (e) => {
+    // Cmd/Ctrl+F to open search
+    if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+      e.preventDefault();
+      mainOutput.showSearch();
+      return;
+    }
+
+    // Escape to close search (if open)
+    if (e.key === "Escape" && mainOutput.isSearchVisible()) {
+      e.preventDefault();
+      mainOutput.hideSearch();
+      inputLine.focus();
+      return;
+    }
+
     // When menu or prompt is showing, capture navigation keys globally
     // This ensures arrow keys work even if input doesn't have focus
     if (menuRenderer.isVisible() || promptRenderer.isVisible()) {
