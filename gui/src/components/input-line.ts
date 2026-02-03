@@ -58,8 +58,9 @@ export class InputLine {
     // When user types, clear flags for special modes and auto-grow
     this.inputEl.addEventListener("input", () => {
       if (this.backendHasText) {
-        // Clear backend's line since user is editing
-        this.onInput("\x15");
+        // Mark that backend's buffer is now stale - don't send Ctrl+U here
+        // because the backend would respond with empty text and clear our input.
+        // The backend will be synced when needed (on Enter or Tab).
         this.backendHasText = false;
       }
       // User is typing, allow backend updates again
@@ -229,6 +230,10 @@ export class InputLine {
           clearTimeout(this.selectTimeoutId);
           this.selectTimeoutId = null;
         }
+        // Collapse any existing selection immediately (e.preventDefault stops browser from doing this)
+        // This prevents backspace from deleting all text if pressed before backend responds
+        const cursorPos = this.inputEl.selectionEnd;
+        this.inputEl.setSelectionRange(cursorPos, cursorPos);
         this.preserveSelection = false; // Allow history to replace text
         this.awaitingHistory = true; // Backend will have the history text
         this.onInput("\x1b[A");
@@ -244,6 +249,9 @@ export class InputLine {
           clearTimeout(this.selectTimeoutId);
           this.selectTimeoutId = null;
         }
+        // Collapse any existing selection immediately (e.preventDefault stops browser from doing this)
+        const cursorPos = this.inputEl.selectionStart;
+        this.inputEl.setSelectionRange(cursorPos, cursorPos);
         this.preserveSelection = false; // Allow history to replace text
         this.awaitingHistory = true; // Backend will have the history text
         this.onInput("\x1b[B");
