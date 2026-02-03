@@ -24,6 +24,7 @@ export class InputLine {
   private backendHasText = false; // True when backend's buffer matches our input (after tab/history)
   private inputMode: InputMode = 'select';
   private preserveSelection = false; // When true, ignore backend's empty setText (for select mode)
+  private selectTimeoutId: ReturnType<typeof setTimeout> | null = null; // Pending select() timeout
   private baseLineHeight = 0; // Computed line height for auto-grow
   private onResize?: () => void;
   private lastHeight = 0; // Track height to detect changes
@@ -187,7 +188,9 @@ export class InputLine {
       this.preserveSelection = true;
       if (this.inputMode === 'select') {
         // Use setTimeout to select after backend events are processed
-        setTimeout(() => {
+        // Store timeout ID so we can cancel it if user navigates history
+        this.selectTimeoutId = setTimeout(() => {
+          this.selectTimeoutId = null;
           this.inputEl.focus();
           this.inputEl.select();
         }, 20);
@@ -221,6 +224,11 @@ export class InputLine {
       const textBeforeCursor = this.inputEl.value.substring(0, this.inputEl.selectionStart);
       if (!textBeforeCursor.includes('\n')) {
         e.preventDefault();
+        // Cancel pending select timeout to prevent selecting history text
+        if (this.selectTimeoutId) {
+          clearTimeout(this.selectTimeoutId);
+          this.selectTimeoutId = null;
+        }
         this.preserveSelection = false; // Allow history to replace text
         this.awaitingHistory = true; // Backend will have the history text
         this.onInput("\x1b[A");
@@ -231,6 +239,11 @@ export class InputLine {
       const textAfterCursor = this.inputEl.value.substring(this.inputEl.selectionStart);
       if (!textAfterCursor.includes('\n')) {
         e.preventDefault();
+        // Cancel pending select timeout to prevent selecting history text
+        if (this.selectTimeoutId) {
+          clearTimeout(this.selectTimeoutId);
+          this.selectTimeoutId = null;
+        }
         this.preserveSelection = false; // Allow history to replace text
         this.awaitingHistory = true; // Backend will have the history text
         this.onInput("\x1b[B");
