@@ -67,8 +67,10 @@ describe('InputLine', () => {
       inputLine.setText('previous command');
       inputLine.setCursor(16); // cursor at end
 
-      // Verify text was set
+      // Verify text was set and NO selection (cursor at end)
       expect(textarea.value).toBe('previous command');
+      expect(textarea.selectionStart).toBe(16);
+      expect(textarea.selectionEnd).toBe(16);
 
       // Clear sent data again
       sentData.length = 0;
@@ -87,6 +89,31 @@ describe('InputLine', () => {
 
       // Verify the text is still there (minus one character)
       expect(textarea.value).toBe('previous comman');
+    });
+
+    it('should prevent full deletion even if text is somehow selected after history', () => {
+      const textarea = getTextarea();
+
+      // Press Up to navigate history
+      pressKey('ArrowUp');
+
+      // Backend responds with history
+      inputLine.setText('history text');
+      inputLine.setCursor(12);
+
+      // Somehow the text gets selected (simulating the intermittent bug)
+      textarea.select();
+      expect(textarea.selectionStart).toBe(0);
+      expect(textarea.selectionEnd).toBe(12);
+
+      // Press Backspace - should NOT delete everything
+      pressKey('Backspace');
+
+      // The defensive code should have prevented full deletion
+      // and instead just deleted one character
+      expect(textarea.value).toBe('history tex');
+      expect(textarea.selectionStart).toBe(11);
+      expect(textarea.selectionEnd).toBe(11);
     });
 
     it('should properly sync with backend on Enter after editing history', () => {

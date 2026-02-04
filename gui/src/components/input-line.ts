@@ -25,6 +25,7 @@ export class InputLine {
   private inputMode: InputMode = 'select';
   private preserveSelection = false; // When true, ignore backend's empty setText (for select mode)
   private selectTimeoutId: ReturnType<typeof setTimeout> | null = null; // Pending select() timeout
+  private historyNavigationActive = false; // True after history navigation, prevents unwanted selection
   private baseLineHeight = 0; // Computed line height for auto-grow
   private onResize?: () => void;
   private lastHeight = 0; // Track height to detect changes
@@ -176,6 +177,8 @@ export class InputLine {
       }
 
       e.preventDefault();
+      // Clear history navigation state - we're sending a new command
+      this.historyNavigationActive = false;
       if (this.backendHasText) {
         // Backend already has the text (e.g., after tab completion), just send Enter
         this.onInput("\r");
@@ -215,11 +218,28 @@ export class InputLine {
       }
       this.awaitingCompletion = true;
     } else if (e.key === "Backspace") {
-      // Let default handle it, but also send to PTY if empty
-      if (this.inputEl.value.length === 0) {
+      // Check if entire text is selected - if so after history navigation,
+      // this is unexpected and we should prevent deleting everything
+      const hasFullSelection = this.inputEl.selectionStart === 0
+        && this.inputEl.selectionEnd === this.inputEl.value.length
+        && this.inputEl.value.length > 0;
+
+      if (hasFullSelection && this.historyNavigationActive) {
+        // After history navigation, we should NOT have selection.
+        // If we do, collapse it and delete just one char instead.
+        e.preventDefault();
+        const text = this.inputEl.value;
+        this.inputEl.value = text.slice(0, -1);
+        this.inputEl.setSelectionRange(text.length - 1, text.length - 1);
+        // Trigger input event manually since we prevented default
+        this.backendHasText = false;
+        this.autoGrow();
+      } else if (this.inputEl.value.length === 0) {
+        // Empty input - send to PTY
         e.preventDefault();
         this.onInput("\x7f");
       }
+      // Otherwise let default browser behavior handle it
     } else if (e.key === "ArrowUp") {
       // Only trigger history if cursor is on the first line
       const textBeforeCursor = this.inputEl.value.substring(0, this.inputEl.selectionStart);
@@ -230,6 +250,8 @@ export class InputLine {
           clearTimeout(this.selectTimeoutId);
           this.selectTimeoutId = null;
         }
+        // Mark that we're navigating history - selection should not occur
+        this.historyNavigationActive = true;
         // Collapse any existing selection immediately (e.preventDefault stops browser from doing this)
         // This prevents backspace from deleting all text if pressed before backend responds
         const cursorPos = this.inputEl.selectionEnd;
@@ -249,6 +271,8 @@ export class InputLine {
           clearTimeout(this.selectTimeoutId);
           this.selectTimeoutId = null;
         }
+        // Mark that we're navigating history - selection should not occur
+        this.historyNavigationActive = true;
         // Collapse any existing selection immediately (e.preventDefault stops browser from doing this)
         const cursorPos = this.inputEl.selectionStart;
         this.inputEl.setSelectionRange(cursorPos, cursorPos);
@@ -328,6 +352,9 @@ export class InputLine {
       this.backendHasText = true;
       this.awaitingCompletion = false;
       this.awaitingHistory = false;
+      // Explicitly ensure no selection after history/completion
+      // Belt-and-suspenders: even if something selected text, clear it now
+      this.inputEl.setSelectionRange(text.length, text.length);
     }
   }
 
