@@ -67,29 +67,36 @@ export class TelnetClient extends EventEmitter {
     this.port = port;
     this.setState("connecting");
 
-    this.socket = new Socket();
-    this.socket.setKeepAlive(true);
+    // Use a local reference so the close handler can check if this socket
+    // is still the current one (prevents race condition on reconnect)
+    const socket = new Socket();
+    this.socket = socket;
+    socket.setKeepAlive(true);
 
-    this.socket.on("connect", () => {
+    socket.on("connect", () => {
       this.setState("connected");
       this.emit("connect");
     });
 
-    this.socket.on("data", (data: Buffer) => {
+    socket.on("data", (data: Buffer) => {
       this.handleData(data);
     });
 
-    this.socket.on("close", () => {
-      this.setState("disconnected");
-      this.socket = null;
+    socket.on("close", () => {
+      // Only update state if this socket is still our current socket
+      // (prevents old socket's close event from clobbering a new connection)
+      if (this.socket === socket) {
+        this.setState("disconnected");
+        this.socket = null;
+      }
       this.emit("close");
     });
 
-    this.socket.on("error", (error: Error) => {
+    socket.on("error", (error: Error) => {
       this.emit("error", error);
     });
 
-    this.socket.connect(port, host);
+    socket.connect(port, host);
   }
 
   disconnect(): void {
