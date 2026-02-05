@@ -130,3 +130,33 @@ npm update
 # Rust
 cd src-tauri && cargo update
 ```
+
+## Releasing
+
+**IMPORTANT:** Always use the release script to create releases. This ensures the version in
+`tauri.conf.json` matches the git tag, which is required for the auto-updater to work correctly.
+
+```bash
+# From project root
+./scripts/release.sh           # Bump patch (0.5.14 -> 0.5.15)
+./scripts/release.sh minor     # Bump minor (0.5.14 -> 0.6.0)
+./scripts/release.sh major     # Bump major (0.5.14 -> 1.0.0)
+./scripts/release.sh 1.2.3     # Set specific version
+```
+
+The script will:
+1. Validate there are no uncommitted changes
+2. Update the version in `gui/src-tauri/tauri.conf.json`
+3. Commit the version bump
+4. Push to remote
+5. Create and push the git tag
+6. Create a GitHub release with auto-generated notes
+
+GitHub Actions (`release.yml` and `release-gui.yml`) then build and upload the artifacts.
+
+### Why this matters
+
+The Tauri auto-updater fetches `latest.json` which contains the version and download URLs.
+The artifact filenames include the version from `tauri.conf.json` (e.g., `Twilite_0.5.15_macos-arm64.app.tar.gz`).
+If the version in `tauri.conf.json` doesn't match the git tag, the URLs in `latest.json` will point
+to non-existent files, causing update failures.
