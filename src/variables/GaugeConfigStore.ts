@@ -125,4 +125,12 @@ export class GaugeConfigStore {
     this.config = this.load();
     return { ...this.config };
   }
+
+  /**
+   * Enable or disable the status line
+   */
+  setStatusLineEnabled(enabled: boolean): void {
+    this.config.statusLine.enabled = enabled;
+    this.save();
+  }
 }

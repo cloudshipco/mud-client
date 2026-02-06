@@ -2310,7 +2310,7 @@ class MudClient {
         this.echo("  /trigger - Manage triggers (list, enable, disable, reload)");
         this.echo("  /timer - Manage timers (list, enable, disable, reload)");
         this.echo("  /var - View/set captured variables (list, get, set, clear)");
-        this.echo("  /gauge - View gauge config and status (list, status, reload)");
+        this.echo("  /gauge - Manage gauges (list, status, enable, disable, reload)");
         this.echo("  /config - Show all settings");
         this.echo("  /set <key> <value> - Change a setting");
         this.echo("  /clear - Clear screen");
@@ -2728,6 +2728,8 @@ class MudClient {
           this.echo("Gauge commands:");
           this.echo("  /gauge list - List configured gauges");
           this.echo("  /gauge status - Show gauge display status");
+          this.echo("  /gauge enable - Enable the gauge status line");
+          this.echo("  /gauge disable - Disable the gauge status line");
           this.echo("  /gauge reload - Reload gauge config from disk");
         } else if (subcommand === "list" || subcommand === "ls") {
           const gauges = this.gaugeConfigStore.getGauges();
@@ -2760,6 +2762,14 @@ class MudClient {
           this.gaugeConfigStore.reload();
           const gauges = this.gaugeConfigStore.getGauges();
           this.echo(`Reloaded ${gauges.length} gauge(s) from disk.`);
+        } else if (subcommand === "enable" || subcommand === "on") {
+          this.gaugeConfigStore.setStatusLineEnabled(true);
+          this.echo("Gauge status line enabled.");
+          this.refreshScreen();
+        } else if (subcommand === "disable" || subcommand === "off") {
+          this.gaugeConfigStore.setStatusLineEnabled(false);
+          this.echo("Gauge status line disabled.");
+          this.refreshScreen();
         } else {
           this.echo(`Unknown gauge subcommand: ${subcommand}`);
           this.echo("Use /gauge help for available commands.");
