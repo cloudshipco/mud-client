@@ -155,9 +155,10 @@ export class PaneManager {
     for (const config of configs) {
       const pane = this.panes.find((p) => p.id === config.id);
       if (pane) {
-        // Only update filter for message panes
+        // Only update filter and passthrough for message panes
         if (pane instanceof Pane && isMessagePaneConfig(config)) {
           pane.updateFilter(config.filter);
+          pane.setPassthrough(config.passthrough ?? false);
         }
         pane.setEnabled(config.enabled ?? true);
       }
