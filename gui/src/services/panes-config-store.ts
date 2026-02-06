@@ -14,6 +14,7 @@ export interface PaneFilter {
 
 export interface PaneConfig {
   id: string;
+  type?: 'message' | 'template';
   enabled?: boolean;
   position: 'top' | 'floating';
   height: number;
@@ -71,8 +72,8 @@ function parseYaml(content: string): PanesConfig {
 
     // Parse panes section
     if (currentSection === 'panes') {
-      // New pane entry (starts with "  - id:")
-      if (line.match(/^\s{2}-\s+id:/)) {
+      // New pane entry (starts with "  - " followed by any key like id:, type:, etc.)
+      if (line.match(/^\s{2}-\s+\w+:/)) {
         if (currentPane && currentPane.id) {
           currentPane.filter = currentFilter || {};
           result.panes.push(currentPane as PaneConfig);
@@ -80,12 +81,29 @@ function parseYaml(content: string): PanesConfig {
         currentPane = { position: 'top' };
         currentFilter = {};
         currentArrayKey = null;
+        // Check if id or type is on this line
+        const idMatch = line.match(/id:\s*["']?([^"'\s]+)["']?/);
+        if (idMatch) currentPane.id = idMatch[1];
+        const typeMatch = line.match(/type:\s*["']?(\w+)["']?/);
+        if (typeMatch) currentPane.type = typeMatch[1] as 'message' | 'template';
+        continue;
+      }
+
+      if (!currentPane) continue;
+
+      // Handle id on a separate line (4 spaces indent)
+      if (line.match(/^\s{4}id:/) && !currentPane.id) {
         const match = line.match(/id:\s*["']?([^"'\s]+)["']?/);
         if (match) currentPane.id = match[1];
         continue;
       }
 
-      if (!currentPane) continue;
+      // Parse type field
+      if (line.match(/^\s{4}type:/)) {
+        const match = line.match(/type:\s*["']?(\w+)["']?/);
+        if (match) currentPane.type = match[1] as 'message' | 'template';
+        continue;
+      }
 
       // Check for array item (8 spaces + dash for filter arrays)
       if (line.match(/^\s{8}-\s+/) && currentArrayKey && currentFilter) {
@@ -179,6 +197,9 @@ function stringifyYaml(config: PanesConfig): string {
 
   for (const pane of config.panes) {
     lines.push(`  - id: ${pane.id}`);
+    if (pane.type) {
+      lines.push(`    type: ${pane.type}`);
+    }
     if (pane.enabled !== undefined) {
       lines.push(`    enabled: ${pane.enabled}`);
     }
