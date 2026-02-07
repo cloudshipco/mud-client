@@ -30,6 +30,15 @@ function buildValueInput(
   const isTriggerAction = action.type === 'disable_trigger' || action.type === 'enable_trigger';
   const isTimerAction = action.type === 'disable_timer' || action.type === 'enable_timer';
   const isSetVariable = action.type === 'set_variable';
+  const isWaitAction = action.type === 'wait';
+
+  if (isWaitAction) {
+    // Wait action: number input for milliseconds
+    return `
+      <input type="number" class="settings-input settings-trigger-action-value"
+             data-${dataAttrPrefix}-action-value="${parentIndex}:${actionIndex}"
+             value="${escapeHtml(action.value || '')}" placeholder="milliseconds" min="0" step="100">`;
+  }
 
   if (isSetVariable) {
     // set_variable needs: name (variable), capture (group name)

@@ -23,7 +23,7 @@ export const CONDITION_OPERATORS: { value: ConditionOperator; label: string }[] 
   { value: 'matches', label: 'matches' },
 ];
 
-export type TriggerActionType = 'send' | 'disable_trigger' | 'enable_trigger' | 'disable_timer' | 'enable_timer' | 'notify' | 'set_variable';
+export type TriggerActionType = 'send' | 'disable_trigger' | 'enable_trigger' | 'disable_timer' | 'enable_timer' | 'notify' | 'set_variable' | 'wait';
 
 export const ACTION_TYPES: { value: TriggerActionType; label: string }[] = [
   { value: 'send', label: 'Send command' },
@@ -33,6 +33,7 @@ export const ACTION_TYPES: { value: TriggerActionType; label: string }[] = [
   { value: 'disable_timer', label: 'Disable timer' },
   { value: 'enable_timer', label: 'Enable timer' },
   { value: 'notify', label: 'Notification' },
+  { value: 'wait', label: 'Wait (ms)' },
 ];
 
 export type VariableValueType = 'string' | 'number';

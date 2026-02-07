@@ -24,12 +24,18 @@ export interface TriggerCondition {
   value: string | number | (string | number)[];
 }
 
-export type TriggerActionType = "send" | "disable_trigger" | "enable_trigger" | "notify" | "set_variable";
+export type TriggerActionType = "send" | "disable_trigger" | "enable_trigger" | "notify" | "set_variable" | "wait";
 
 /** Base action with type and value */
 export interface BaseTriggerAction {
-  type: Exclude<TriggerActionType, "set_variable">;
+  type: Exclude<TriggerActionType, "set_variable" | "wait">;
   value: string;
+}
+
+/** Wait action with delay in milliseconds */
+export interface WaitAction {
+  type: "wait";
+  value: number;  // Delay in milliseconds
 }
 
 /** Action to set a variable from a capture group */
@@ -40,7 +46,7 @@ export interface SetVariableAction {
   valueType?: "string" | "number";  // Optional type (default: string)
 }
 
-export type TriggerAction = BaseTriggerAction | SetVariableAction;
+export type TriggerAction = BaseTriggerAction | SetVariableAction | WaitAction;
 
 /** Resolved set_variable action with the captured value ready to apply */
 export interface ResolvedSetVariableAction {

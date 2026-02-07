@@ -3,11 +3,21 @@ import { join } from "path";
 import { homedir } from "os";
 import { parse, stringify } from "yaml";
 
+/** Timer action types */
+export type TimerActionType = "send" | "notify" | "disable_trigger" | "enable_trigger" | "disable_timer" | "enable_timer" | "wait";
+
+/** Timer action with type and value */
+export interface TimerAction {
+  type: TimerActionType;
+  value: string | number;
+}
+
 export interface TimerDefinition {
   name: string;
   enabled: boolean;
   interval: number;      // seconds
-  commands: string[];    // commands to execute each tick
+  actions?: TimerAction[];  // actions to execute each tick
+  commands?: string[];    // @deprecated - legacy support
 }
 
 export interface TimersConfig {
@@ -44,6 +54,7 @@ export class TimerConfigStore {
             name: t.name || "",
             enabled: t.enabled !== false,
             interval: typeof t.interval === "number" ? t.interval : 60,
+            actions: Array.isArray(t.actions) ? t.actions : undefined,
             commands: Array.isArray(t.commands) ? t.commands : [],
           })),
         };

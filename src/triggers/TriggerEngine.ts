@@ -7,12 +7,14 @@ import type {
   TriggersConfig,
   SetVariableAction,
   ResolvedSetVariableAction,
+  WaitAction,
 } from "./TriggerConfigStore";
 
 /** Resolved action - either a standard action or a resolved set_variable with captured value */
 export type ResolvedTriggerAction =
-  | Exclude<TriggerAction, SetVariableAction>
-  | ResolvedSetVariableAction;
+  | Exclude<TriggerAction, SetVariableAction | WaitAction>
+  | ResolvedSetVariableAction
+  | WaitAction;
 
 /** Pattern groups mapping: group name -> array of regex patterns */
 export type PatternGroups = Record<string, string[]>;

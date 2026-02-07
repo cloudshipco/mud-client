@@ -799,9 +799,7 @@ class MudClient {
 
       // Evaluate triggers against every line
       const triggerActions = this.triggerEngine.evaluate(stripped);
-      for (const action of triggerActions) {
-        this.executeTriggerAction(action);
-      }
+      this.executeActionsWithDelays(triggerActions);
 
       // Route to panes if any are enabled
       if (panesEnabled) {
@@ -889,9 +887,7 @@ class MudClient {
 
       // Evaluate triggers against every line
       const triggerActions = this.triggerEngine.evaluate(stripped);
-      for (const action of triggerActions) {
-        this.executeTriggerAction(action);
-      }
+      this.executeActionsWithDelays(triggerActions);
 
       const classified = this.classifier.classify(stripped);
 
@@ -2186,6 +2182,36 @@ class MudClient {
         // Set variable in the store (value already resolved by TriggerEngine)
         this.variableStore.set(action.name, action.value, action.valueType);
         break;
+      case "wait":
+        // Wait actions are handled by executeActionsWithDelays, not here
+        break;
+    }
+  }
+
+  /**
+   * Execute a batch of actions, respecting wait delays between them.
+   * Actions before a wait are executed immediately, then remaining actions
+   * are scheduled after the delay.
+   */
+  private executeActionsWithDelays(actions: ResolvedTriggerAction[]): void {
+    let currentDelay = 0;
+
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+
+      if (action.type === "wait") {
+        // Accumulate delay for subsequent actions
+        currentDelay += typeof action.value === "number" ? action.value : parseInt(String(action.value), 10) || 0;
+      } else if (currentDelay > 0) {
+        // Schedule this action after the accumulated delay
+        const delayMs = currentDelay;
+        setTimeout(() => {
+          this.executeTriggerAction(action);
+        }, delayMs);
+      } else {
+        // No delay, execute immediately
+        this.executeTriggerAction(action);
+      }
     }
   }
 

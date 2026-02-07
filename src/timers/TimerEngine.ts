@@ -57,6 +57,29 @@ export class TimerEngine {
     }
   }
 
+  /**
+   * Execute actions with support for wait delays between them.
+   */
+  private executeActionsWithDelays(actions: TimerAction[]): void {
+    let currentDelay = 0;
+
+    for (const action of actions) {
+      if (action.type === "wait") {
+        // Accumulate delay for subsequent actions
+        currentDelay += typeof action.value === "number" ? action.value : parseInt(String(action.value), 10) || 0;
+      } else if (currentDelay > 0) {
+        // Schedule this action after the accumulated delay
+        const delayMs = currentDelay;
+        setTimeout(() => {
+          this.actionCallback(action);
+        }, delayMs);
+      } else {
+        // No delay, execute immediately
+        this.actionCallback(action);
+      }
+    }
+  }
+
   private startTimer(timer: TimerDefinition): void {
     // Don't start if already running
     if (this.running.has(timer.name)) return;
@@ -69,9 +92,7 @@ export class TimerEngine {
       // Execute actions (or legacy commands)
       const actions = timer.actions || [];
       if (actions.length > 0) {
-        for (const action of actions) {
-          this.actionCallback(action);
-        }
+        this.executeActionsWithDelays(actions);
       } else if (timer.commands && timer.commands.length > 0) {
         // Legacy commands support
         for (const command of timer.commands) {

@@ -80,6 +80,7 @@ const TIMER_ACTION_TYPES: { value: TriggerActionType; label: string }[] = [
   { value: 'enable_trigger', label: 'Enable trigger' },
   { value: 'disable_timer', label: 'Disable timer' },
   { value: 'enable_timer', label: 'Enable timer' },
+  { value: 'wait', label: 'Wait (ms)' },
 ];
 import {
   GaugesConfig,
