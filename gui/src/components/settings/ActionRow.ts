@@ -92,7 +92,7 @@ function buildValueInput(
 }
 
 /**
- * Render an action row with type dropdown and value input
+ * Render an action row with type dropdown, value input, and reorder buttons
  */
 export function ActionRow({
   context,
@@ -103,6 +103,8 @@ export function ActionRow({
   triggerOptions = [],
   timerOptions = [],
   captureOptions = [],
+  isFirst = false,
+  isLast = false,
 }: ActionRowProps): string {
   const dataAttrPrefix = context === 'trigger' ? 'trigger' : 'timer';
 
@@ -116,8 +118,20 @@ export function ActionRow({
     captureOptions
   );
 
+  // Reorder buttons - disabled at boundaries
+  const moveUpBtn = `<button class="settings-btn settings-btn-icon settings-btn-reorder"
+    data-move-${dataAttrPrefix}-action-up="${parentIndex}:${actionIndex}"
+    title="Move up"${isFirst ? ' disabled' : ''}>\u2191</button>`;
+  const moveDownBtn = `<button class="settings-btn settings-btn-icon settings-btn-reorder"
+    data-move-${dataAttrPrefix}-action-down="${parentIndex}:${actionIndex}"
+    title="Move down"${isLast ? ' disabled' : ''}>\u2193</button>`;
+
   return `
     <div class="settings-trigger-action-row" data-${dataAttrPrefix}-action="${parentIndex}:${actionIndex}">
+      <div class="settings-action-reorder">
+        ${moveUpBtn}
+        ${moveDownBtn}
+      </div>
       <select class="settings-select settings-trigger-action-type"
               data-${dataAttrPrefix}-action-type="${parentIndex}:${actionIndex}">
         ${actionTypes.map(at =>

@@ -99,6 +99,7 @@ import {
   ConditionsList,
   FormRow,
   ActionRow,
+  ActionList,
   ConditionRow,
   Chip,
   ChipContainer,
@@ -1231,20 +1232,6 @@ function buildTriggersSection(): string {
       })
     ).join('');
 
-    // Build action rows using component
-    const actionRows = (trigger.actions || []).map((action, actionIndex) =>
-      ActionRow({
-        context: 'trigger',
-        parentIndex: triggerIndex,
-        actionIndex,
-        action,
-        actionTypes: ACTION_TYPES,
-        triggerOptions,
-        timerOptions,
-        captureOptions: availableCaptureGroups,
-      })
-    ).join('');
-
     // Show message if no pattern groups are defined yet
     const patternsMessage = availableGroups.length === 0
       ? SecondaryText('No pattern groups defined. Create patterns in the Patterns tab first.')
@@ -1269,10 +1256,14 @@ function buildTriggersSection(): string {
           children: ConditionsList({ children: conditionRows }),
           addButton: { label: '+ Add Condition', dataAttr: 'add-trigger-condition', index: triggerIndex },
         })}
-        ${Subsection({
-          label: 'Actions',
-          children: ItemList({ children: actionRows }),
-          addButton: { label: '+ Add Action', dataAttr: 'add-trigger-action', index: triggerIndex },
+        ${ActionList({
+          context: 'trigger',
+          parentIndex: triggerIndex,
+          actions: trigger.actions || [],
+          actionTypes: ACTION_TYPES,
+          triggerOptions,
+          timerOptions,
+          captureOptions: availableCaptureGroups,
         })}
       `,
     });
@@ -1538,6 +1529,36 @@ function bindTriggerInputs() {
     });
   });
 
+  // Move action up buttons
+  document.querySelectorAll('[data-move-trigger-action-up]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const [triggerStr, actionStr] = el.dataset.moveTriggerActionUp!.split(':');
+    const triggerIndex = parseInt(triggerStr, 10);
+    const actionIndex = parseInt(actionStr, 10);
+    el.addEventListener('click', () => {
+      const actions = currentTriggers.triggers[triggerIndex].actions;
+      if (actions && actionIndex > 0) {
+        [actions[actionIndex - 1], actions[actionIndex]] = [actions[actionIndex], actions[actionIndex - 1]];
+        render();
+      }
+    });
+  });
+
+  // Move action down buttons
+  document.querySelectorAll('[data-move-trigger-action-down]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const [triggerStr, actionStr] = el.dataset.moveTriggerActionDown!.split(':');
+    const triggerIndex = parseInt(triggerStr, 10);
+    const actionIndex = parseInt(actionStr, 10);
+    el.addEventListener('click', () => {
+      const actions = currentTriggers.triggers[triggerIndex].actions;
+      if (actions && actionIndex < actions.length - 1) {
+        [actions[actionIndex], actions[actionIndex + 1]] = [actions[actionIndex + 1], actions[actionIndex]];
+        render();
+      }
+    });
+  });
+
   // Add action buttons
   document.querySelectorAll('[data-add-trigger-action]').forEach((btn) => {
     const el = btn as HTMLButtonElement;
@@ -1777,19 +1798,6 @@ function buildTimersSection(): string {
     .map(t => ({ name: t.name }));
 
   const timerCards = currentTimers.timers.map((timer, timerIndex) => {
-    // Build action rows using component
-    const actionRows = (timer.actions || []).map((action, actionIndex) =>
-      ActionRow({
-        context: 'timer',
-        parentIndex: timerIndex,
-        actionIndex,
-        action,
-        actionTypes: TIMER_ACTION_TYPES,
-        triggerOptions,
-        timerOptions,
-      })
-    ).join('');
-
     return Card({
       index: timerIndex,
       dataPrefix: 'timer',
@@ -1810,10 +1818,13 @@ function buildTimersSection(): string {
             `,
           }),
         })}
-        ${Subsection({
-          label: 'Actions',
-          children: ItemList({ children: actionRows }),
-          addButton: { label: '+ Add Action', dataAttr: 'add-timer-action', index: timerIndex },
+        ${ActionList({
+          context: 'timer',
+          parentIndex: timerIndex,
+          actions: timer.actions || [],
+          actionTypes: TIMER_ACTION_TYPES,
+          triggerOptions,
+          timerOptions,
         })}
       `,
     });
@@ -1935,6 +1946,36 @@ function bindTimerInputs() {
     el.addEventListener('click', () => {
       currentTimers.timers[timerIndex].actions?.splice(actionIndex, 1);
       render();
+    });
+  });
+
+  // Move action up buttons
+  document.querySelectorAll('[data-move-timer-action-up]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const [timerStr, actionStr] = el.dataset.moveTimerActionUp!.split(':');
+    const timerIndex = parseInt(timerStr, 10);
+    const actionIndex = parseInt(actionStr, 10);
+    el.addEventListener('click', () => {
+      const actions = currentTimers.timers[timerIndex].actions;
+      if (actions && actionIndex > 0) {
+        [actions[actionIndex - 1], actions[actionIndex]] = [actions[actionIndex], actions[actionIndex - 1]];
+        render();
+      }
+    });
+  });
+
+  // Move action down buttons
+  document.querySelectorAll('[data-move-timer-action-down]').forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const [timerStr, actionStr] = el.dataset.moveTimerActionDown!.split(':');
+    const timerIndex = parseInt(timerStr, 10);
+    const actionIndex = parseInt(actionStr, 10);
+    el.addEventListener('click', () => {
+      const actions = currentTimers.timers[timerIndex].actions;
+      if (actions && actionIndex < actions.length - 1) {
+        [actions[actionIndex], actions[actionIndex + 1]] = [actions[actionIndex + 1], actions[actionIndex]];
+        render();
+      }
     });
   });
 

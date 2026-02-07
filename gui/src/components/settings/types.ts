@@ -56,6 +56,18 @@ export interface ActionRowProps {
   triggerOptions?: Array<{ name: string }>;
   timerOptions?: Array<{ name: string }>;
   captureOptions?: string[];
+  isFirst?: boolean;
+  isLast?: boolean;
+}
+
+export interface ActionListProps {
+  context: ActionContext;
+  parentIndex: number;
+  actions: TriggerAction[];
+  actionTypes: Array<{ value: string; label: string }>;
+  triggerOptions?: Array<{ name: string }>;
+  timerOptions?: Array<{ name: string }>;
+  captureOptions?: string[];
 }
 
 export interface ConditionRowProps {
