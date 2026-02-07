@@ -1535,11 +1535,14 @@ function bindTriggerInputs() {
     const [triggerStr, actionStr] = el.dataset.moveTriggerActionUp!.split(':');
     const triggerIndex = parseInt(triggerStr, 10);
     const actionIndex = parseInt(actionStr, 10);
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
       const actions = currentTriggers.triggers[triggerIndex].actions;
       if (actions && actionIndex > 0) {
         [actions[actionIndex - 1], actions[actionIndex]] = [actions[actionIndex], actions[actionIndex - 1]];
+        const scrollY = window.scrollY;
         render();
+        window.scrollTo(0, scrollY);
       }
     });
   });
@@ -1550,11 +1553,14 @@ function bindTriggerInputs() {
     const [triggerStr, actionStr] = el.dataset.moveTriggerActionDown!.split(':');
     const triggerIndex = parseInt(triggerStr, 10);
     const actionIndex = parseInt(actionStr, 10);
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
       const actions = currentTriggers.triggers[triggerIndex].actions;
       if (actions && actionIndex < actions.length - 1) {
         [actions[actionIndex], actions[actionIndex + 1]] = [actions[actionIndex + 1], actions[actionIndex]];
+        const scrollY = window.scrollY;
         render();
+        window.scrollTo(0, scrollY);
       }
     });
   });
@@ -1955,11 +1961,14 @@ function bindTimerInputs() {
     const [timerStr, actionStr] = el.dataset.moveTimerActionUp!.split(':');
     const timerIndex = parseInt(timerStr, 10);
     const actionIndex = parseInt(actionStr, 10);
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
       const actions = currentTimers.timers[timerIndex].actions;
       if (actions && actionIndex > 0) {
         [actions[actionIndex - 1], actions[actionIndex]] = [actions[actionIndex], actions[actionIndex - 1]];
+        const scrollY = window.scrollY;
         render();
+        window.scrollTo(0, scrollY);
       }
     });
   });
@@ -1970,11 +1979,14 @@ function bindTimerInputs() {
     const [timerStr, actionStr] = el.dataset.moveTimerActionDown!.split(':');
     const timerIndex = parseInt(timerStr, 10);
     const actionIndex = parseInt(actionStr, 10);
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
       const actions = currentTimers.timers[timerIndex].actions;
       if (actions && actionIndex < actions.length - 1) {
         [actions[actionIndex], actions[actionIndex + 1]] = [actions[actionIndex + 1], actions[actionIndex]];
+        const scrollY = window.scrollY;
         render();
+        window.scrollTo(0, scrollY);
       }
     });
   });
