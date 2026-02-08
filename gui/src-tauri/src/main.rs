@@ -169,7 +169,7 @@ fn destroy_pty(registry: tauri::State<PtyRegistry>, window_id: String) {
 fn create_new_window(app: AppHandle) -> Result<String, String> {
     let label = format!("main-{}", Uuid::new_v4());
 
-    WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         &app,
         &label,
         WebviewUrl::App("index.html".into()),
@@ -177,11 +177,18 @@ fn create_new_window(app: AppHandle) -> Result<String, String> {
     .title("Twilite")
     .inner_size(1024.0, 768.0)
     .min_inner_size(640.0, 480.0)
-    .resizable(true)
-    .title_bar_style(tauri::TitleBarStyle::Overlay)
-    .hidden_title(true)
-    .build()
-    .map_err(|e| format!("Failed to create window: {}", e))?;
+    .resizable(true);
+
+    // macOS-specific: overlay titlebar style
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true);
+    }
+
+    builder.build()
+        .map_err(|e| format!("Failed to create window: {}", e))?;
 
     eprintln!("[Tauri] Created new window: {}", label);
     Ok(label)
@@ -299,7 +306,7 @@ fn main() {
                 }
                 "new_window" => {
                     let label = format!("main-{}", Uuid::new_v4());
-                    if let Err(e) = WebviewWindowBuilder::new(
+                    let mut builder = WebviewWindowBuilder::new(
                         app,
                         &label,
                         WebviewUrl::App("index.html".into()),
@@ -307,11 +314,17 @@ fn main() {
                     .title("Twilite")
                     .inner_size(1024.0, 768.0)
                     .min_inner_size(640.0, 480.0)
-                    .resizable(true)
-                    .title_bar_style(tauri::TitleBarStyle::Overlay)
-                    .hidden_title(true)
-                    .build()
+                    .resizable(true);
+
+                    // macOS-specific: overlay titlebar style
+                    #[cfg(target_os = "macos")]
                     {
+                        builder = builder
+                            .title_bar_style(tauri::TitleBarStyle::Overlay)
+                            .hidden_title(true);
+                    }
+
+                    if let Err(e) = builder.build() {
                         eprintln!("Failed to create new window: {}", e);
                     } else {
                         eprintln!("[Tauri] Created new window from menu: {}", label);
