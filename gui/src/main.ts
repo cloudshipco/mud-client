@@ -23,6 +23,7 @@ import { InputLine } from "./components/input-line";
 import { MenuRenderer } from "./components/menu-renderer";
 import { PromptRenderer } from "./components/prompt-renderer";
 import { applyThemeColors } from "./utils/ansi-parser";
+import { getColorScheme, type ColorSchemeName } from "./types/color-schemes";
 
 import "./styles/fonts.css";
 import "./styles/panes.css";
@@ -693,6 +694,12 @@ async function main() {
         // Update variable store and refresh gauges
         currentVariables = event.variables;
         updateGauges();
+        break;
+      }
+      case "colorScheme": {
+        // Apply color scheme for this character
+        const scheme = getColorScheme(event.scheme as ColorSchemeName);
+        applyThemeColors(scheme.theme);
         break;
       }
     }

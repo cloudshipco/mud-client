@@ -1,3 +1,5 @@
+export type ColorSchemeName = 'dark' | 'light' | 'pastel';
+
 export interface CharacterConfig {
   id: string;
   connectionId: string;
@@ -7,6 +9,8 @@ export interface CharacterConfig {
   triggers: TriggerConfig[];
   /** Profile ID for filtering active items. undefined = global (all items active) */
   profileId?: string;
+  /** Color scheme for terminal. undefined = use default (dark) */
+  colorScheme?: ColorSchemeName;
   createdAt: number;
   lastUsedAt: number;
 }

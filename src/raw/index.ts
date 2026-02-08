@@ -97,6 +97,11 @@ export interface GuiVariablesEvent {
   variables: Record<string, { value: string | number; type: "string" | "number" }>;
 }
 
+export interface GuiColorSchemeEvent {
+  event: "colorScheme";
+  scheme: "dark" | "light" | "pastel";
+}
+
 export type GuiEvent =
   | GuiPaneEvent
   | GuiMainEvent
@@ -106,7 +111,8 @@ export type GuiEvent =
   | GuiClientMessageEvent
   | GuiPanesConfigEvent
   | GuiNotificationEvent
-  | GuiVariablesEvent;
+  | GuiVariablesEvent
+  | GuiColorSchemeEvent;
 
 // ANSI escape codes
 const ESC = "\x1b";
@@ -641,6 +647,14 @@ class MudClient {
 
     // Inform GUI about pane configuration
     this.emitPanesConfig();
+
+    // Emit color scheme for this character
+    if (this.guiMode && this.currentCharacter) {
+      this.emitGuiEvent({
+        event: "colorScheme",
+        scheme: this.currentCharacter.colorScheme || "dark",
+      });
+    }
 
     // Clear screen and show connection info
     process.stdout.write(CLEAR_SCREEN + CURSOR_HOME);

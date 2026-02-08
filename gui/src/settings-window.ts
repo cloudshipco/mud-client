@@ -11,6 +11,7 @@ import {
   FontWeight,
   TerminalTheme,
 } from './types/settings';
+import { COLOR_SCHEME_OPTIONS, getColorScheme, type ColorSchemeName } from './types/color-schemes';
 import { loadSettings, saveSettings, resetSettings } from './services/settings-store';
 import {
   AppConfig,
@@ -2524,6 +2525,17 @@ function buildCharacterEditorSection(connectionId: string, characterId: string):
           ${profileOptions}
         </select>
       </div>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label" for="character-edit-colorscheme">Color Scheme</label>
+          <span class="settings-description">Terminal color scheme for this character</span>
+        </div>
+        <select class="settings-select" id="character-edit-colorscheme" style="width: 200px">
+          ${COLOR_SCHEME_OPTIONS.map(opt =>
+            `<option value="${opt.value}"${(character.colorScheme || 'dark') === opt.value ? ' selected' : ''}>${opt.label}</option>`
+          ).join('')}
+        </select>
+      </div>
     </div>
 
     <div class="settings-section">
@@ -2661,6 +2673,21 @@ function bindCharacterInputs() {
       const character = connData?.characters.find(c => c.id === editingCharacter!.characterId);
       if (character) {
         character.profileId = profileSelect.value || undefined;
+        await saveCharacter(character);
+      }
+    });
+  }
+
+  // Character color scheme select
+  const colorSchemeSelect = document.getElementById('character-edit-colorscheme') as HTMLSelectElement;
+  if (colorSchemeSelect && editingCharacter) {
+    colorSchemeSelect.addEventListener('change', async () => {
+      if (!editingCharacter) return;
+
+      const connData = connectionsWithCharacters.find(c => c.connection.id === editingCharacter!.connectionId);
+      const character = connData?.characters.find(c => c.id === editingCharacter!.characterId);
+      if (character) {
+        character.colorScheme = (colorSchemeSelect.value as ColorSchemeName) || undefined;
         await saveCharacter(character);
       }
     });
@@ -3139,6 +3166,19 @@ function buildColorsSection(): string {
     <div class="settings-section">
       <h3>Colors</h3>
 
+      <div class="settings-row" style="margin-bottom: 16px">
+        <div class="settings-label-group">
+          <label class="settings-label" for="color-scheme-preset">Preset</label>
+          <span class="settings-description">Select a color scheme or customize below</span>
+        </div>
+        <select class="settings-select" id="color-scheme-preset" style="width: 150px">
+          <option value="">Custom</option>
+          ${COLOR_SCHEME_OPTIONS.map(opt =>
+            `<option value="${opt.value}">${opt.label}</option>`
+          ).join('')}
+        </select>
+      </div>
+
       <div class="settings-color-grid">
         <div class="settings-color-item">
           <input type="color" class="settings-color-swatch" data-theme-color="background" value="${theme.background}" title="Background">
@@ -3207,9 +3247,35 @@ function bindInputs() {
 
     el.addEventListener('input', () => {
       currentSettings.theme[colorKey] = el.value;
+      // Reset preset dropdown to "Custom" when manually editing colors
+      const presetSelect = document.getElementById('color-scheme-preset') as HTMLSelectElement;
+      if (presetSelect) presetSelect.value = '';
       emitSettingsChange();
     });
   });
+
+  // Color scheme preset selector
+  const colorSchemePreset = document.getElementById('color-scheme-preset') as HTMLSelectElement;
+  if (colorSchemePreset) {
+    colorSchemePreset.addEventListener('change', () => {
+      const schemeName = colorSchemePreset.value as ColorSchemeName;
+      if (!schemeName) return; // "Custom" selected, do nothing
+
+      const scheme = getColorScheme(schemeName);
+      // Apply all colors from the scheme
+      currentSettings.theme = { ...scheme.theme };
+
+      // Update all color swatch inputs to reflect the new values
+      const swatches = document.querySelectorAll('[data-theme-color]');
+      swatches.forEach((input) => {
+        const el = input as HTMLInputElement;
+        const colorKey = el.dataset.themeColor as keyof TerminalTheme;
+        el.value = currentSettings.theme[colorKey];
+      });
+
+      emitSettingsChange();
+    });
+  }
 
   // Config inputs (config tab)
   const configInputs = document.querySelectorAll('[data-config]');

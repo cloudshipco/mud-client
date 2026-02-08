@@ -5,6 +5,7 @@
 
 import { readTextFile, writeTextFile, exists, readDir, remove, mkdir } from '@tauri-apps/plugin-fs';
 import { join, homeDir } from '@tauri-apps/api/path';
+import type { ColorSchemeName } from '../types/color-schemes';
 
 export interface ConnectionConfig {
   id: string;
@@ -23,6 +24,7 @@ export interface CharacterConfig {
   aliases: Record<string, string>;
   triggers: unknown[];
   profileId?: string;
+  colorScheme?: ColorSchemeName;
   createdAt: number;
   lastUsedAt: number;
 }
