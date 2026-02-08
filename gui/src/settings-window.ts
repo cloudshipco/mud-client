@@ -92,6 +92,31 @@ import {
   updateGauge,
 } from './services/gauges-config-store';
 import {
+  ProfilesConfig,
+  ProfileConfig,
+  loadProfilesConfig,
+  saveProfilesConfig,
+  resetProfilesConfig,
+  createProfile,
+  duplicateProfile,
+  deleteProfile,
+  getProfile,
+  getProfilesContainingItem,
+  slugify as profileSlugify,
+  generateProfileId,
+} from './services/profiles-config-store';
+import {
+  ConnectionWithCharacters,
+  CharacterConfig as GuiCharacterConfig,
+  ConnectionConfig as GuiConnectionConfig,
+  loadConnectionsWithCharacters,
+  saveCharacter,
+  deleteCharacter,
+  createConnection,
+  createCharacter,
+  formatLastUsed,
+} from './services/characters-config-store';
+import {
   escapeHtml,
   Card,
   Subsection,
@@ -112,7 +137,7 @@ import {
 } from '@tauri-apps/plugin-notification';
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager';
 
-type TabId = 'terminal' | 'config' | 'panes' | 'aliases' | 'patterns' | 'notifications' | 'triggers' | 'timers' | 'gauges';
+type TabId = 'terminal' | 'config' | 'characters' | 'panes' | 'aliases' | 'patterns' | 'notifications' | 'triggers' | 'timers' | 'gauges' | 'profiles';
 
 const FONT_FAMILIES = [
   // Bundled fonts (Monaspace)
@@ -181,6 +206,32 @@ function getCaptureGroupsForPatternGroups(patternGroups: string[]): string[] {
   return Array.from(captureGroups).sort();
 }
 
+/**
+ * Build profile indicator HTML showing which profiles include an item.
+ * Returns empty string if no profiles are defined.
+ */
+function buildProfileIndicator(
+  itemType: 'triggers' | 'aliases' | 'timers' | 'patternGroups' | 'panes' | 'gauges',
+  itemName: string
+): string {
+  if (currentProfiles.profiles.length === 0) return '';
+
+  const includingProfiles = getProfilesContainingItem(currentProfiles, itemType, itemName);
+
+  if (includingProfiles.length === 0) {
+    return `<div class="settings-profile-indicator settings-profile-indicator-none">Not in any profile</div>`;
+  }
+
+  if (includingProfiles.length === currentProfiles.profiles.length) {
+    return `<div class="settings-profile-indicator settings-profile-indicator-all">In all profiles</div>`;
+  }
+
+  const profileList = includingProfiles.slice(0, 3).map(p => escapeHtml(p)).join(', ');
+  const suffix = includingProfiles.length > 3 ? ` +${includingProfiles.length - 3} more` : '';
+
+  return `<div class="settings-profile-indicator">Profiles: ${profileList}${suffix}</div>`;
+}
+
 let currentSettings: TerminalSettings;
 let originalSettings: TerminalSettings;
 let currentConfig: AppConfig;
@@ -199,6 +250,11 @@ let currentTimers: TimersConfig = { timers: [] };
 let originalTimers: TimersConfig = { timers: [] };
 let currentGauges: GaugesConfig = { gauges: [], statusLine: { enabled: true, position: 'above-input' } };
 let originalGauges: GaugesConfig = { gauges: [], statusLine: { enabled: true, position: 'above-input' } };
+let currentProfiles: ProfilesConfig = { profiles: [] };
+let originalProfiles: ProfilesConfig = { profiles: [] };
+let editingProfileIndex: number | null = null;  // Index of profile being edited, null for list view
+let connectionsWithCharacters: ConnectionWithCharacters[] = [];
+let editingCharacter: { connectionId: string; characterId: string } | null = null;
 let activeTab: TabId = 'terminal';
 
 // Conflict resolution state for import
@@ -752,7 +808,7 @@ async function importTriggersFromClipboard(): Promise<void> {
 }
 
 async function init() {
-  [currentSettings, currentConfig, currentPanesConfig, currentAliases, currentPatterns, currentNotifications, currentTriggers, currentTimers, currentGauges] = await Promise.all([
+  [currentSettings, currentConfig, currentPanesConfig, currentAliases, currentPatterns, currentNotifications, currentTriggers, currentTimers, currentGauges, currentProfiles] = await Promise.all([
     loadSettings(),
     loadConfig(),
     loadPanesConfig(),
@@ -762,7 +818,11 @@ async function init() {
     loadTriggersConfig(),
     loadTimersConfig(),
     loadGaugesConfig(),
+    loadProfilesConfig(),
   ]);
+  // Load connections separately (not part of save/restore flow)
+  connectionsWithCharacters = await loadConnectionsWithCharacters();
+
   originalSettings = JSON.parse(JSON.stringify(currentSettings));
   originalConfig = JSON.parse(JSON.stringify(currentConfig));
   originalPanesConfig = currentPanesConfig ? JSON.parse(JSON.stringify(currentPanesConfig)) : null;
@@ -772,6 +832,7 @@ async function init() {
   originalTriggers = JSON.parse(JSON.stringify(currentTriggers));
   originalTimers = JSON.parse(JSON.stringify(currentTimers));
   originalGauges = JSON.parse(JSON.stringify(currentGauges));
+  originalProfiles = JSON.parse(JSON.stringify(currentProfiles));
   render();
 }
 
@@ -779,6 +840,7 @@ function buildTabContent(): string {
   switch (activeTab) {
     case 'terminal': return buildTerminalSections();
     case 'config': return buildConfigSection();
+    case 'characters': return buildCharactersSection();
     case 'panes': return buildPanesSection();
     case 'aliases': return buildAliasesSection();
     case 'patterns': return buildPatternsSection();
@@ -786,6 +848,7 @@ function buildTabContent(): string {
     case 'triggers': return buildTriggersSection();
     case 'timers': return buildTimersSection();
     case 'gauges': return buildGaugesSection();
+    case 'profiles': return buildProfilesSection();
     default: return '';
   }
 }
@@ -796,24 +859,43 @@ function render() {
 
   root.innerHTML = `
     <div class="settings-container">
-      <div class="settings-tabs">
-        <button class="settings-tab ${activeTab === 'terminal' ? 'active' : ''}" data-tab="terminal">Terminal</button>
-        <button class="settings-tab ${activeTab === 'config' ? 'active' : ''}" data-tab="config">Config</button>
-        <button class="settings-tab ${activeTab === 'aliases' ? 'active' : ''}" data-tab="aliases">Aliases</button>
-        <button class="settings-tab ${activeTab === 'patterns' ? 'active' : ''}" data-tab="patterns">Patterns</button>
-        <button class="settings-tab ${activeTab === 'panes' ? 'active' : ''}" data-tab="panes">Panes</button>
-        <button class="settings-tab ${activeTab === 'triggers' ? 'active' : ''}" data-tab="triggers">Triggers</button>
-        <button class="settings-tab ${activeTab === 'timers' ? 'active' : ''}" data-tab="timers">Timers</button>
-        <button class="settings-tab ${activeTab === 'gauges' ? 'active' : ''}" data-tab="gauges">Gauges</button>
-        <button class="settings-tab ${activeTab === 'notifications' ? 'active' : ''}" data-tab="notifications">Notifications</button>
+      <div class="settings-sidebar">
+        <div class="settings-sidebar-section">
+          <div class="settings-sidebar-label">General</div>
+          <div class="settings-tabs">
+            <button class="settings-tab ${activeTab === 'terminal' ? 'active' : ''}" data-tab="terminal">Terminal</button>
+            <button class="settings-tab ${activeTab === 'config' ? 'active' : ''}" data-tab="config">Config</button>
+            <button class="settings-tab ${activeTab === 'characters' ? 'active' : ''}" data-tab="characters">Characters</button>
+            <button class="settings-tab ${activeTab === 'profiles' ? 'active' : ''}" data-tab="profiles">Profiles</button>
+          </div>
+        </div>
+        <div class="settings-sidebar-section">
+          <div class="settings-sidebar-label">Automation</div>
+          <div class="settings-tabs">
+            <button class="settings-tab ${activeTab === 'aliases' ? 'active' : ''}" data-tab="aliases">Aliases</button>
+            <button class="settings-tab ${activeTab === 'triggers' ? 'active' : ''}" data-tab="triggers">Triggers</button>
+            <button class="settings-tab ${activeTab === 'timers' ? 'active' : ''}" data-tab="timers">Timers</button>
+            <button class="settings-tab ${activeTab === 'patterns' ? 'active' : ''}" data-tab="patterns">Patterns</button>
+          </div>
+        </div>
+        <div class="settings-sidebar-section">
+          <div class="settings-sidebar-label">Display</div>
+          <div class="settings-tabs">
+            <button class="settings-tab ${activeTab === 'panes' ? 'active' : ''}" data-tab="panes">Panes</button>
+            <button class="settings-tab ${activeTab === 'gauges' ? 'active' : ''}" data-tab="gauges">Gauges</button>
+            <button class="settings-tab ${activeTab === 'notifications' ? 'active' : ''}" data-tab="notifications">Notifications</button>
+          </div>
+        </div>
       </div>
-      <div class="settings-content">
-        ${buildTabContent()}
-      </div>
-      <div class="settings-footer">
-        ${activeTab === 'terminal' ? '<button class="settings-btn settings-btn-danger" id="reset-btn">Reset to Defaults</button>' : ''}
-        <button class="settings-btn settings-btn-secondary" id="cancel-btn">Cancel</button>
-        <button class="settings-btn settings-btn-primary" id="apply-btn">Apply</button>
+      <div class="settings-main">
+        <div class="settings-content">
+          ${buildTabContent()}
+        </div>
+        <div class="settings-footer">
+          ${activeTab === 'terminal' ? '<button class="settings-btn settings-btn-danger" id="reset-btn">Reset to Defaults</button>' : ''}
+          <button class="settings-btn settings-btn-secondary" id="cancel-btn">Cancel</button>
+          <button class="settings-btn settings-btn-primary" id="apply-btn">Apply</button>
+        </div>
       </div>
     </div>
   `;
@@ -918,10 +1000,6 @@ function buildConfigSection(): string {
                ${c.autoReconnect ? 'checked' : ''}>
       </div>
     </div>
-
-    <div class="settings-note">
-      Changes require restarting the client to take effect.
-    </div>
   `;
 }
 
@@ -999,6 +1077,7 @@ function buildPanesSection(): string {
           label: 'Pattern Groups',
           children: ChipContainer({ children: patternChips }),
         })}
+        ${buildProfileIndicator('panes', pane.id)}
       </div>
     `;
   }).join('');
@@ -1022,15 +1101,19 @@ function buildPanesSection(): string {
 function buildAliasesSection(): string {
   const aliasEntries = Object.entries(currentAliases).sort((a, b) => a[0].localeCompare(b[0]));
 
-  const aliasRows = aliasEntries.map(([name, expansion]) => `
-    <div class="settings-alias-row" data-alias-name="${escapeHtml(name)}">
-      <input type="text" class="settings-input settings-alias-name" data-alias-key="${escapeHtml(name)}"
-             value="${escapeHtml(name)}" placeholder="Alias name">
-      <input type="text" class="settings-input settings-alias-expansion" data-alias-value="${escapeHtml(name)}"
-             value="${escapeHtml(expansion)}" placeholder="Expansion">
-      <button class="settings-btn settings-btn-icon" data-alias-delete="${escapeHtml(name)}" title="Delete alias">×</button>
-    </div>
-  `).join('');
+  const aliasRows = aliasEntries.map(([name, expansion]) => {
+    const profileIndicator = buildProfileIndicator('aliases', name);
+    return `
+      <div class="settings-alias-row" data-alias-name="${escapeHtml(name)}">
+        <input type="text" class="settings-input settings-alias-name" data-alias-key="${escapeHtml(name)}"
+               value="${escapeHtml(name)}" placeholder="Alias name">
+        <input type="text" class="settings-input settings-alias-expansion" data-alias-value="${escapeHtml(name)}"
+               value="${escapeHtml(expansion)}" placeholder="Expansion">
+        <button class="settings-btn settings-btn-icon" data-alias-delete="${escapeHtml(name)}" title="Delete alias">×</button>
+        ${profileIndicator ? `<span class="settings-alias-profile-hint" title="${escapeHtml(profileIndicator.replace(/<[^>]*>/g, ''))}">\u2139</span>` : ''}
+      </div>
+    `;
+  }).join('');
 
   return `
     <div class="settings-section">
@@ -1067,6 +1150,7 @@ function buildPatternsSection(): string {
           ${buildGroupPatternRows(groupName, patterns)}
         </div>
         <button class="settings-btn settings-btn-secondary settings-pattern-add" data-add-pattern="${escapeHtml(groupName)}">+ Add Pattern</button>
+        ${buildProfileIndicator('patternGroups', groupName)}
       </div>
     `;
   }).join('');
@@ -1265,6 +1349,7 @@ function buildTriggersSection(): string {
           timerOptions,
           captureOptions: availableCaptureGroups,
         })}
+        ${buildProfileIndicator('triggers', trigger.name)}
       `,
     });
   }).join('');
@@ -1832,6 +1917,7 @@ function buildTimersSection(): string {
           triggerOptions,
           timerOptions,
         })}
+        ${buildProfileIndicator('timers', timer.name)}
       `,
     });
   }).join('');
@@ -2094,7 +2180,7 @@ function buildGaugesSection(): string {
                    value="${gauge.color || '#4caf50'}" title="Gauge color">
           `,
         }),
-      }),
+      }) + (gauge.variable ? buildProfileIndicator('gauges', gauge.variable) : ''),
     });
   }).join('');
 
@@ -2291,6 +2377,663 @@ function bindGaugeInputs() {
         [gauges[index], gauges[index + 1]] = [gauges[index + 1], gauges[index]];
         render();
       }
+    });
+  });
+}
+
+/**
+ * Build the Characters section - displays connections and characters with profile assignment
+ */
+function buildCharactersSection(): string {
+  // If editing a character, show the editor
+  if (editingCharacter) {
+    return buildCharacterEditorSection(editingCharacter.connectionId, editingCharacter.characterId);
+  }
+
+  const connectionCards = connectionsWithCharacters.map(({ connection, characters }) => {
+    const characterRows = characters.map(char => {
+      const profile = char.profileId
+        ? currentProfiles.profiles.find(p => p.id === char.profileId)
+        : null;
+      const profileName = profile ? profile.name : 'Global (all items)';
+
+      return `
+        <div class="settings-character-row" data-character="${connection.id}:${char.id}">
+          <div class="settings-character-info">
+            <span class="settings-character-name">${escapeHtml(char.name)}</span>
+            <span class="settings-character-profile">${escapeHtml(profileName)}</span>
+          </div>
+          <div class="settings-character-meta">
+            <span class="settings-character-last-used">${formatLastUsed(char.lastUsedAt)}</span>
+            <button type="button" class="settings-btn settings-btn-secondary settings-btn-small" data-edit-character="${connection.id}:${char.id}">Edit</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="settings-connection-card">
+        <div class="settings-connection-header">
+          <span class="settings-connection-name">${escapeHtml(connection.name)}</span>
+          <span class="settings-connection-host">${escapeHtml(connection.host)}:${connection.port}</span>
+        </div>
+        <div class="settings-character-list">
+          ${characterRows || '<div class="settings-empty-small">No characters yet</div>'}
+        </div>
+        <div class="settings-card-footer">
+          <input type="text" class="settings-input" placeholder="Character name" data-add-char-name="${connection.id}">
+          <input type="password" class="settings-input" placeholder="Password (optional)" data-add-char-pass="${connection.id}">
+          <button type="button" class="settings-btn settings-btn-secondary" data-add-char-btn="${connection.id}">Add</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="settings-section">
+      <h3>Add Connection</h3>
+      <p class="settings-description">
+        Add a new MUD server connection.
+      </p>
+      <div class="settings-card-footer">
+        <input type="text" class="settings-input" id="new-conn-name" placeholder="Name (e.g., My MUD)">
+        <input type="text" class="settings-input" id="new-conn-host" placeholder="Host (e.g., mud.example.com)">
+        <input type="number" class="settings-input" id="new-conn-port" placeholder="Port" value="23" style="max-width: 80px">
+        <button type="button" class="settings-btn settings-btn-primary" id="add-connection-btn">Add</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Connections & Characters</h3>
+      ${connectionsWithCharacters.length === 0
+        ? '<div class="settings-empty"><p>No connections yet. Add one above to get started.</p></div>'
+        : `<div class="settings-connections-list">${connectionCards}</div>`
+      }
+    </div>
+  `;
+}
+
+/**
+ * Build the Character Editor section
+ */
+function buildCharacterEditorSection(connectionId: string, characterId: string): string {
+  const connData = connectionsWithCharacters.find(c => c.connection.id === connectionId);
+  if (!connData) {
+    editingCharacter = null;
+    return buildCharactersSection();
+  }
+
+  const character = connData.characters.find(c => c.id === characterId);
+  if (!character) {
+    editingCharacter = null;
+    return buildCharactersSection();
+  }
+
+  // Build profile options
+  const profileOptions = [
+    `<option value=""${!character.profileId ? ' selected' : ''}>Global (all items active)</option>`,
+    ...currentProfiles.profiles.map(p =>
+      `<option value="${escapeHtml(p.id)}"${character.profileId === p.id ? ' selected' : ''}>${escapeHtml(p.name)}</option>`
+    )
+  ].join('');
+
+  return `
+    <div class="settings-section">
+      <div class="settings-profile-editor-header">
+        <button class="settings-btn settings-btn-secondary" id="character-back-btn">&larr; Back to Characters</button>
+        <h3>Editing: ${escapeHtml(character.name)}</h3>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Character Details</h3>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label">Connection</label>
+          <span class="settings-description">${escapeHtml(connData.connection.name)} (${escapeHtml(connData.connection.host)}:${connData.connection.port})</span>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label" for="character-edit-name">Name</label>
+        </div>
+        <input type="text" class="settings-input" id="character-edit-name"
+               value="${escapeHtml(character.name)}" placeholder="Character name">
+      </div>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label" for="character-edit-password">Password</label>
+          <span class="settings-description">Used for auto-login</span>
+        </div>
+        <input type="password" class="settings-input" id="character-edit-password"
+               value="${escapeHtml(character.password || '')}" placeholder="Optional">
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Profile Assignment</h3>
+      <p class="settings-description">
+        Assign a profile to limit which triggers, aliases, timers, and other items are active for this character.
+        Leave as "Global" to use all items.
+      </p>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label" for="character-edit-profile">Profile</label>
+        </div>
+        <select class="settings-select" id="character-edit-profile" style="width: 200px">
+          ${profileOptions}
+        </select>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-character-stats">
+        <span class="settings-description">Created: ${new Date(character.createdAt).toLocaleDateString()}</span>
+        <span class="settings-description">Last used: ${formatLastUsed(character.lastUsedAt)}</span>
+      </div>
+    </div>
+
+    <div class="settings-section settings-danger-zone">
+      <h3>Danger Zone</h3>
+      <div class="settings-row">
+        <div class="settings-label-group">
+          <label class="settings-label">Delete Character</label>
+          <span class="settings-description">Permanently delete this character and its command history.</span>
+        </div>
+        <button type="button" class="settings-btn settings-btn-danger" id="character-delete-btn">Delete Character</button>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Bind event handlers for the Characters section
+ */
+function bindCharacterInputs() {
+  // Add connection button
+  const addConnBtn = document.getElementById('add-connection-btn');
+  if (addConnBtn) {
+    addConnBtn.addEventListener('click', async () => {
+      const nameInput = document.getElementById('new-conn-name') as HTMLInputElement;
+      const hostInput = document.getElementById('new-conn-host') as HTMLInputElement;
+      const portInput = document.getElementById('new-conn-port') as HTMLInputElement;
+
+      const name = nameInput?.value.trim();
+      const host = hostInput?.value.trim();
+      const port = parseInt(portInput?.value || '23', 10);
+
+      if (!name || !host) {
+        return;
+      }
+
+      try {
+        const connection = await createConnection(name, host, port);
+        connectionsWithCharacters.push({ connection, characters: [] });
+        render();
+      } catch (error) {
+        console.error('Failed to create connection:', error);
+      }
+    });
+  }
+
+  // Add character buttons
+  document.querySelectorAll('[data-add-char-btn]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const connectionId = (btn as HTMLElement).dataset.addCharBtn;
+      if (!connectionId) return;
+
+      const nameInput = document.querySelector(`[data-add-char-name="${connectionId}"]`) as HTMLInputElement;
+      const passInput = document.querySelector(`[data-add-char-pass="${connectionId}"]`) as HTMLInputElement;
+
+      const name = nameInput?.value.trim();
+      const password = passInput?.value || undefined;
+
+      if (!name) return;
+
+      try {
+        const character = await createCharacter(connectionId, name, password);
+        const connData = connectionsWithCharacters.find(c => c.connection.id === connectionId);
+        if (connData) {
+          connData.characters.push(character);
+        }
+        render();
+      } catch (error) {
+        console.error('Failed to create character:', error);
+      }
+    });
+  });
+
+  // Edit character buttons
+  document.querySelectorAll('[data-edit-character]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const [connectionId, characterId] = ((btn as HTMLElement).dataset.editCharacter || '').split(':');
+      if (connectionId && characterId) {
+        editingCharacter = { connectionId, characterId };
+        render();
+      }
+    });
+  });
+
+  // Back button (in editor view)
+  document.getElementById('character-back-btn')?.addEventListener('click', () => {
+    editingCharacter = null;
+    render();
+  });
+
+  // Character name input
+  const nameInput = document.getElementById('character-edit-name') as HTMLInputElement;
+  if (nameInput && editingCharacter) {
+    nameInput.addEventListener('change', async () => {
+      const name = nameInput.value.trim();
+      if (!name || !editingCharacter) return;
+
+      const connData = connectionsWithCharacters.find(c => c.connection.id === editingCharacter!.connectionId);
+      const character = connData?.characters.find(c => c.id === editingCharacter!.characterId);
+      if (character) {
+        character.name = name;
+        await saveCharacter(character);
+      }
+    });
+  }
+
+  // Character password input
+  const passwordInput = document.getElementById('character-edit-password') as HTMLInputElement;
+  if (passwordInput && editingCharacter) {
+    passwordInput.addEventListener('change', async () => {
+      if (!editingCharacter) return;
+
+      const connData = connectionsWithCharacters.find(c => c.connection.id === editingCharacter!.connectionId);
+      const character = connData?.characters.find(c => c.id === editingCharacter!.characterId);
+      if (character) {
+        character.password = passwordInput.value || undefined;
+        await saveCharacter(character);
+      }
+    });
+  }
+
+  // Character profile select
+  const profileSelect = document.getElementById('character-edit-profile') as HTMLSelectElement;
+  if (profileSelect && editingCharacter) {
+    profileSelect.addEventListener('change', async () => {
+      if (!editingCharacter) return;
+
+      const connData = connectionsWithCharacters.find(c => c.connection.id === editingCharacter!.connectionId);
+      const character = connData?.characters.find(c => c.id === editingCharacter!.characterId);
+      if (character) {
+        character.profileId = profileSelect.value || undefined;
+        await saveCharacter(character);
+      }
+    });
+  }
+
+  // Delete character button
+  const deleteBtn = document.getElementById('character-delete-btn');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', async () => {
+      if (!editingCharacter) return;
+
+      const connData = connectionsWithCharacters.find(c => c.connection.id === editingCharacter!.connectionId);
+      const character = connData?.characters.find(c => c.id === editingCharacter!.characterId);
+      if (!character) return;
+
+      // Two-click confirmation: first click shows confirm state, second click deletes
+      if (deleteBtn.dataset.confirmDelete === 'true') {
+        try {
+          await deleteCharacter(editingCharacter.connectionId, editingCharacter.characterId);
+
+          // Remove from local state
+          if (connData) {
+            connData.characters = connData.characters.filter(c => c.id !== editingCharacter!.characterId);
+          }
+
+          editingCharacter = null;
+          render();
+        } catch (error) {
+          console.error('Failed to delete character:', error);
+          deleteBtn.textContent = 'Delete Failed';
+          deleteBtn.dataset.confirmDelete = '';
+        }
+      } else {
+        // First click - show confirmation state
+        deleteBtn.dataset.confirmDelete = 'true';
+        deleteBtn.textContent = `Click to confirm delete "${character.name}"`;
+        deleteBtn.classList.add('settings-btn-danger-confirm');
+
+        // Reset after 3 seconds if not confirmed
+        setTimeout(() => {
+          if (deleteBtn.dataset.confirmDelete === 'true') {
+            deleteBtn.dataset.confirmDelete = '';
+            deleteBtn.textContent = 'Delete Character';
+            deleteBtn.classList.remove('settings-btn-danger-confirm');
+          }
+        }, 3000);
+      }
+    });
+  }
+}
+
+/**
+ * Build the Profiles section
+ */
+function buildProfilesSection(): string {
+  // If editing a profile, show the editor view
+  if (editingProfileIndex !== null) {
+    return buildProfileEditorSection(editingProfileIndex);
+  }
+
+  // Otherwise show the list view
+  const profileCards = currentProfiles.profiles.map((profile, index) => {
+    // Count how many items are included
+    const triggerCount = profile.triggers === undefined ? 'all' : profile.triggers.length.toString();
+    const aliasCount = profile.aliases === undefined ? 'all' : profile.aliases.length.toString();
+    const timerCount = profile.timers === undefined ? 'all' : profile.timers.length.toString();
+    const patternGroupCount = profile.patternGroups === undefined ? 'all' : profile.patternGroups.length.toString();
+    const paneCount = profile.panes === undefined ? 'all' : profile.panes.length.toString();
+    const gaugeCount = profile.gauges === undefined ? 'all' : profile.gauges.length.toString();
+
+    return `
+      <div class="settings-pattern-group-card" data-profile-index="${index}">
+        <div class="settings-pattern-group-header">
+          <input type="text" class="settings-input settings-group-name-input"
+                 data-profile-name="${index}"
+                 value="${escapeHtml(profile.name)}" placeholder="Profile name">
+          <button class="settings-btn settings-btn-secondary" data-edit-profile="${index}" title="Edit profile">Edit</button>
+          <button class="settings-btn settings-btn-secondary" data-duplicate-profile="${index}" title="Duplicate profile">Clone</button>
+          <button class="settings-btn settings-btn-icon" data-delete-profile="${index}" title="Delete profile">\u00d7</button>
+        </div>
+        <div class="settings-profile-details">
+          ${profile.description ? `<p class="settings-description">${escapeHtml(profile.description)}</p>` : ''}
+          <div class="settings-profile-counts">
+            <span class="settings-chip">Triggers: ${triggerCount}</span>
+            <span class="settings-chip">Aliases: ${aliasCount}</span>
+            <span class="settings-chip">Timers: ${timerCount}</span>
+            <span class="settings-chip">Patterns: ${patternGroupCount}</span>
+            <span class="settings-chip">Panes: ${paneCount}</span>
+            <span class="settings-chip">Gauges: ${gaugeCount}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="settings-section">
+      <h3>About Profiles</h3>
+      <p class="settings-description">
+        Profiles let you select which triggers, aliases, timers, patterns, panes, and gauges are active
+        for a given character. Assign a profile to a character in the connection menu.
+      </p>
+      <details class="settings-help-details">
+        <summary>How profiles work</summary>
+        <div class="settings-help-content">
+          <ul>
+            <li><strong>Global Pool:</strong> All items (triggers, aliases, etc.) are defined globally in their respective tabs</li>
+            <li><strong>Profiles:</strong> A profile selects which items from the global pool are active</li>
+            <li><strong>Characters:</strong> A character can be "global" (all items active) or assigned to a profile</li>
+            <li><strong>Selection:</strong> In the profile editor, check which items to include. Unchecked items won't fire/work for characters using that profile.</li>
+          </ul>
+        </div>
+      </details>
+    </div>
+
+    <div class="settings-section">
+      <h3>Profiles</h3>
+      ${profileCards || '<div class="settings-empty"><p>No profiles defined. Create a profile to manage which items are active per character.</p></div>'}
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-add-group">
+        <button class="settings-btn settings-btn-secondary" id="add-profile-btn">+ Create Profile</button>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Build the Profile Editor section for a specific profile
+ */
+function buildProfileEditorSection(profileIndex: number): string {
+  const profile = currentProfiles.profiles[profileIndex];
+  if (!profile) {
+    editingProfileIndex = null;
+    return buildProfilesSection();
+  }
+
+  // Get all available items from the global pools
+  const allTriggers = currentTriggers.triggers.filter(t => t.name && t.name.trim() !== '');
+  const allAliases = Object.keys(currentAliases).sort();
+  const allTimers = currentTimers.timers.filter(t => t.name && t.name.trim() !== '');
+  const allPatternGroups = Object.keys(currentPatterns.groups).sort();
+  const allPanes = (currentPanesConfig?.panes || []).filter(p => p.id && p.id.trim() !== '');
+  const allGauges = currentGauges.gauges.filter(g => g.variable && g.variable.trim() !== '');
+
+  // Helper to build checkbox lists
+  const buildCheckboxList = (
+    itemType: 'triggers' | 'aliases' | 'timers' | 'patternGroups' | 'panes' | 'gauges',
+    items: { name: string; label?: string }[],
+    selectedItems: string[] | undefined
+  ): string => {
+    const isAllSelected = selectedItems === undefined;
+    const selectedSet = new Set(selectedItems || []);
+
+    if (items.length === 0) {
+      return '<p class="settings-description">No items defined.</p>';
+    }
+
+    const checkboxes = items.map((item, i) => {
+      const name = item.name;
+      const label = item.label || name;
+      const isChecked = isAllSelected || selectedSet.has(name);
+      return `
+        <label class="settings-profile-item">
+          <input type="checkbox" class="settings-checkbox"
+                 data-profile-item="${itemType}:${escapeHtml(name)}"
+                 ${isChecked ? 'checked' : ''}>
+          <span>${escapeHtml(label)}</span>
+        </label>
+      `;
+    }).join('');
+
+    return `
+      <div class="settings-profile-select-all">
+        <label>
+          <input type="checkbox" class="settings-checkbox" data-profile-select-all="${itemType}"
+                 ${isAllSelected ? 'checked' : ''}>
+          <span>Include all (current and future)</span>
+        </label>
+      </div>
+      <div class="settings-profile-items ${isAllSelected ? 'settings-profile-items-disabled' : ''}">
+        ${checkboxes}
+      </div>
+    `;
+  };
+
+  return `
+    <div class="settings-section">
+      <div class="settings-profile-editor-header">
+        <button class="settings-btn settings-btn-secondary" id="profile-back-btn">&larr; Back to Profiles</button>
+        <h3>Editing: ${escapeHtml(profile.name)}</h3>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Profile Details</h3>
+      <div class="settings-row">
+        <label class="settings-label" for="profile-edit-name">Name</label>
+        <input type="text" class="settings-input" id="profile-edit-name"
+               value="${escapeHtml(profile.name)}" placeholder="Profile name">
+      </div>
+      <div class="settings-row">
+        <label class="settings-label" for="profile-edit-description">Description</label>
+        <input type="text" class="settings-input" id="profile-edit-description"
+               value="${escapeHtml(profile.description || '')}" placeholder="Optional description">
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Included Triggers</h3>
+      ${buildCheckboxList('triggers', allTriggers.map(t => ({ name: t.name, label: t.name })), profile.triggers)}
+    </div>
+
+    <div class="settings-section">
+      <h3>Included Aliases</h3>
+      ${buildCheckboxList('aliases', allAliases.map(a => ({ name: a, label: `${a} \u2192 ${currentAliases[a]}` })), profile.aliases)}
+    </div>
+
+    <div class="settings-section">
+      <h3>Included Timers</h3>
+      ${buildCheckboxList('timers', allTimers.map(t => ({ name: t.name, label: t.name })), profile.timers)}
+    </div>
+
+    <div class="settings-section">
+      <h3>Included Pattern Groups</h3>
+      ${buildCheckboxList('patternGroups', allPatternGroups.map(g => ({ name: g, label: g })), profile.patternGroups)}
+    </div>
+
+    <div class="settings-section">
+      <h3>Included Panes</h3>
+      ${buildCheckboxList('panes', allPanes.map(p => ({ name: p.id, label: p.id })), profile.panes)}
+    </div>
+
+    <div class="settings-section">
+      <h3>Included Gauges</h3>
+      ${buildCheckboxList('gauges', allGauges.map(g => ({ name: g.variable, label: g.label || g.variable })), profile.gauges)}
+    </div>
+  `;
+}
+
+/**
+ * Bind event handlers for the Profiles section
+ */
+function bindProfileInputs() {
+  // Profile name inputs (in list view)
+  document.querySelectorAll('[data-profile-name]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const index = parseInt(el.dataset.profileName!, 10);
+    el.addEventListener('change', () => {
+      const name = el.value.trim();
+      if (name) {
+        currentProfiles.profiles[index].name = name;
+        currentProfiles.profiles[index].updatedAt = Date.now();
+      } else {
+        el.value = currentProfiles.profiles[index].name;
+      }
+    });
+  });
+
+  // Edit profile buttons
+  document.querySelectorAll('[data-edit-profile]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const index = parseInt((btn as HTMLElement).dataset.editProfile!, 10);
+      editingProfileIndex = index;
+      render();
+    });
+  });
+
+  // Duplicate profile buttons
+  document.querySelectorAll('[data-duplicate-profile]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const index = parseInt((btn as HTMLElement).dataset.duplicateProfile!, 10);
+      const original = currentProfiles.profiles[index];
+      if (original) {
+        duplicateProfile(currentProfiles, original.id);
+        render();
+      }
+    });
+  });
+
+  // Delete profile buttons
+  document.querySelectorAll('[data-delete-profile]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const index = parseInt((btn as HTMLElement).dataset.deleteProfile!, 10);
+      currentProfiles.profiles.splice(index, 1);
+      render();
+    });
+  });
+
+  // Add profile button
+  document.getElementById('add-profile-btn')?.addEventListener('click', () => {
+    createProfile(currentProfiles, 'New Profile');
+    render();
+  });
+
+  // Back button (in editor view)
+  document.getElementById('profile-back-btn')?.addEventListener('click', () => {
+    editingProfileIndex = null;
+    render();
+  });
+
+  // Profile name in editor
+  const editNameInput = document.getElementById('profile-edit-name') as HTMLInputElement;
+  if (editNameInput && editingProfileIndex !== null) {
+    editNameInput.addEventListener('change', () => {
+      const name = editNameInput.value.trim();
+      if (name && editingProfileIndex !== null) {
+        currentProfiles.profiles[editingProfileIndex].name = name;
+        currentProfiles.profiles[editingProfileIndex].updatedAt = Date.now();
+      }
+    });
+  }
+
+  // Profile description in editor
+  const editDescInput = document.getElementById('profile-edit-description') as HTMLInputElement;
+  if (editDescInput && editingProfileIndex !== null) {
+    editDescInput.addEventListener('change', () => {
+      if (editingProfileIndex !== null) {
+        currentProfiles.profiles[editingProfileIndex].description = editDescInput.value.trim() || undefined;
+        currentProfiles.profiles[editingProfileIndex].updatedAt = Date.now();
+      }
+    });
+  }
+
+  // "Select all" checkboxes
+  document.querySelectorAll('[data-profile-select-all]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const itemType = el.dataset.profileSelectAll as 'triggers' | 'aliases' | 'timers' | 'patternGroups' | 'panes' | 'gauges';
+    el.addEventListener('change', () => {
+      if (editingProfileIndex === null) return;
+      const profile = currentProfiles.profiles[editingProfileIndex];
+      if (el.checked) {
+        // Set to undefined = include all
+        profile[itemType] = undefined;
+      } else {
+        // Set to empty array = include none (user will check individual items)
+        profile[itemType] = [];
+      }
+      profile.updatedAt = Date.now();
+      render();
+    });
+  });
+
+  // Individual item checkboxes
+  document.querySelectorAll('[data-profile-item]').forEach((input) => {
+    const el = input as HTMLInputElement;
+    const [itemType, itemName] = el.dataset.profileItem!.split(':') as [
+      'triggers' | 'aliases' | 'timers' | 'patternGroups' | 'panes' | 'gauges',
+      string
+    ];
+    el.addEventListener('change', () => {
+      if (editingProfileIndex === null) return;
+      const profile = currentProfiles.profiles[editingProfileIndex];
+
+      // If currently "all", we need to switch to explicit list first
+      if (profile[itemType] === undefined) {
+        // This shouldn't happen if UI is correct (items disabled when all selected)
+        return;
+      }
+
+      const arr = profile[itemType]!;
+      if (el.checked) {
+        if (!arr.includes(itemName)) {
+          arr.push(itemName);
+        }
+      } else {
+        const idx = arr.indexOf(itemName);
+        if (idx !== -1) {
+          arr.splice(idx, 1);
+        }
+      }
+      profile.updatedAt = Date.now();
     });
   });
 }
@@ -2502,6 +3245,12 @@ function bindInputs() {
 
   // Gauge inputs (gauges tab)
   bindGaugeInputs();
+
+  // Profile inputs (profiles tab)
+  bindProfileInputs();
+
+  // Character inputs (characters tab)
+  bindCharacterInputs();
 }
 
 function bindPaneInputs() {
@@ -3011,6 +3760,7 @@ function bindButtons() {
       saveTriggersConfig(currentTriggers),
       saveTimersConfig(currentTimers),
       saveGaugesConfig(currentGauges),
+      saveProfilesConfig(currentProfiles),
     ];
     if (currentPanesConfig) {
       saves.push(savePanesConfig(currentPanesConfig));
@@ -3024,6 +3774,7 @@ function bindButtons() {
     await emitTriggersConfigChange();
     await emitTimersConfigChange();
     await emitGaugesConfigChange();
+    await emitProfilesConfigChange();
     getCurrentWindow().close();
   });
 
@@ -3074,6 +3825,10 @@ async function emitTimersConfigChange() {
 
 async function emitGaugesConfigChange() {
   await emit('gauges-config-changed', currentGauges);
+}
+
+async function emitProfilesConfigChange() {
+  await emit('profiles-config-changed', currentProfiles);
 }
 
 // Handle Escape key to close

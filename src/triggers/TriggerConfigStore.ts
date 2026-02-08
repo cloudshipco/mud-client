@@ -150,4 +150,29 @@ export class TriggerConfigStore {
       triggers: [...this.config.triggers],
     };
   }
+
+  /**
+   * Get triggers filtered by profile.
+   * If triggerNames is undefined, returns all triggers.
+   * If triggerNames is an array, returns only triggers whose names are in the array.
+   */
+  getTriggersFiltered(triggerNames: string[] | undefined): TriggerDefinition[] {
+    if (triggerNames === undefined) {
+      return [...this.config.triggers];
+    }
+    const nameSet = new Set(triggerNames);
+    return this.config.triggers.filter(t => nameSet.has(t.name));
+  }
+
+  /**
+   * Get triggers config filtered by profile.
+   * If triggerNames is undefined, returns all triggers.
+   * If triggerNames is an array, returns only triggers whose names are in the array.
+   */
+  getConfigFiltered(triggerNames: string[] | undefined): TriggersConfig {
+    this.config = this.load();
+    return {
+      triggers: this.getTriggersFiltered(triggerNames),
+    };
+  }
 }

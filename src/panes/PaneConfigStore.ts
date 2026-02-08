@@ -184,4 +184,18 @@ export class PaneConfigStore {
     const content = stringify(this.config);
     writeFileSync(this.configPath, content);
   }
+
+  /**
+   * Get panes filtered by profile.
+   * If paneIds is undefined, returns all panes.
+   * If paneIds is an array, returns only panes whose IDs are in the array.
+   */
+  getPanesFiltered(paneIds: string[] | undefined): PaneConfig[] {
+    this.config = this.load();
+    if (paneIds === undefined) {
+      return this.config.panes;
+    }
+    const idSet = new Set(paneIds);
+    return this.config.panes.filter(p => idSet.has(p.id));
+  }
 }

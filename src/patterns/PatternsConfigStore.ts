@@ -294,4 +294,36 @@ export class PatternsConfigStore {
   reload(): void {
     this.config = this.load();
   }
+
+  /**
+   * Get pattern groups filtered by profile.
+   * If groupNames is undefined, returns all groups.
+   * If groupNames is an array, returns only groups whose names are in the array.
+   */
+  getGroupsFiltered(groupNames: string[] | undefined): Record<string, string[]> {
+    if (groupNames === undefined) {
+      return { ...this.config.groups };
+    }
+    const nameSet = new Set(groupNames);
+    const filtered: Record<string, string[]> = {};
+    for (const [name, patterns] of Object.entries(this.config.groups)) {
+      if (nameSet.has(name)) {
+        filtered[name] = [...patterns];
+      }
+    }
+    return filtered;
+  }
+
+  /**
+   * Get patterns config filtered by profile.
+   * If groupNames is undefined, returns all groups.
+   * If groupNames is an array, returns only groups whose names are in the array.
+   */
+  getConfigFiltered(groupNames: string[] | undefined): PatternsConfig {
+    this.config = this.load();
+    return {
+      groups: this.getGroupsFiltered(groupNames),
+      continuation: this.config.continuation,
+    };
+  }
 }

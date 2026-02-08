@@ -164,4 +164,44 @@ export class PaneManager {
       }
     }
   }
+
+  /**
+   * Replace all panes with a new list (used for profile filtering)
+   * Preserves message history where possible
+   */
+  updatePanes(configs: PaneConfig[]): void {
+    // Build a map of existing pane content for reuse
+    const existingContent = new Map<string, AnyPane>();
+    for (const pane of this.panes) {
+      existingContent.set(pane.id, pane);
+    }
+
+    // Create new pane list
+    const newPanes: AnyPane[] = [];
+    for (const config of configs) {
+      const existing = existingContent.get(config.id);
+      if (existing) {
+        // Reuse existing pane (preserves message history)
+        if (existing instanceof Pane && isMessagePaneConfig(config)) {
+          existing.updateFilter(config.filter);
+          existing.setPassthrough(config.passthrough ?? false);
+        }
+        existing.setEnabled(config.enabled ?? true);
+        newPanes.push(existing);
+      } else {
+        // Create new pane
+        if (isTemplatePaneConfig(config)) {
+          const templatePane = new TemplatePane(config);
+          if (this.variableStore) {
+            templatePane.connect(this.variableStore);
+          }
+          newPanes.push(templatePane);
+        } else {
+          newPanes.push(new Pane(config as MessagePaneConfig));
+        }
+      }
+    }
+
+    this.panes = newPanes;
+  }
 }

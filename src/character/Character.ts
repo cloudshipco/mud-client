@@ -5,6 +5,8 @@ export interface CharacterConfig {
   password?: string;
   aliases: Record<string, string>;
   triggers: TriggerConfig[];
+  /** Profile ID for filtering active items. undefined = global (all items active) */
+  profileId?: string;
   createdAt: number;
   lastUsedAt: number;
 }

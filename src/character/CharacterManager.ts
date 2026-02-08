@@ -165,10 +165,23 @@ export class CharacterManager extends EventEmitter {
     return this.aliasStore.getAll();
   }
 
-  expandAlias(input: string): string {
+  /**
+   * Get aliases filtered by profile.
+   * If aliasNames is undefined, returns all aliases.
+   */
+  getAliasesFiltered(aliasNames: string[] | undefined): Record<string, string> {
+    return this.aliasStore.getAllFiltered(aliasNames);
+  }
+
+  expandAlias(input: string, allowedAliases?: string[]): string {
     const parts = input.split(/\s+/);
     const cmd = parts[0];
     const args = parts.slice(1);
+
+    // If filtering is enabled and this alias is not allowed, don't expand
+    if (allowedAliases !== undefined && !allowedAliases.includes(cmd)) {
+      return input;
+    }
 
     const expansion = this.aliasStore.get(cmd);
     if (!expansion) {

@@ -59,4 +59,24 @@ export class AliasStore {
   has(name: string): boolean {
     return name in this.load();
   }
+
+  /**
+   * Get aliases filtered by profile.
+   * If aliasNames is undefined, returns all aliases.
+   * If aliasNames is an array, returns only aliases whose keys are in the array.
+   */
+  getAllFiltered(aliasNames: string[] | undefined): AliasMap {
+    const all = this.load();
+    if (aliasNames === undefined) {
+      return all;
+    }
+    const nameSet = new Set(aliasNames);
+    const filtered: AliasMap = {};
+    for (const key of Object.keys(all)) {
+      if (nameSet.has(key)) {
+        filtered[key] = all[key];
+      }
+    }
+    return filtered;
+  }
 }

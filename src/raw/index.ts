@@ -23,6 +23,7 @@ import { GaugeConfigStore } from "../variables/GaugeConfigStore";
 import { renderStatusLine, hasGaugeData } from "../variables/StatusLineRenderer";
 import { TimerConfigStore } from "../timers/TimerConfigStore";
 import { TimerEngine } from "../timers/TimerEngine";
+import { ProfileStore, type ProfileConfig } from "../profile/ProfileStore";
 
 // GUI mode JSON event types
 export interface GuiPaneMessage {
@@ -143,6 +144,8 @@ class MudClient {
   private timerEngine: TimerEngine;
   private variableStore: VariableStore;
   private gaugeConfigStore: GaugeConfigStore;
+  private profileStore: ProfileStore;
+  private currentProfile: ProfileConfig | null = null;
 
   // Total height of all enabled panes (0 if none enabled)
   private get totalPaneHeight(): number {
@@ -218,6 +221,7 @@ class MudClient {
     this.frecencyStore = new FrecencyStore();
     this.charManager = new CharacterManager(this.history, this.frecencyStore);
     this.settings = new SettingsManager();
+    this.settings.on("changed", (changedKeys: string[]) => this.onSettingsChanged(changedKeys));
     this.menu = new Menu();
     this.prompt = new TextPrompt();
     this.paneConfig = new PaneConfigStore();
@@ -232,6 +236,7 @@ class MudClient {
     this.timerEngine = new TimerEngine(this.timerConfigStore, (cmd) => this.handleCommand(cmd, true));
     this.variableStore = new VariableStore();
     this.gaugeConfigStore = new GaugeConfigStore();
+    this.profileStore = new ProfileStore();
 
     // Connect template panes to variable store for reactive updates
     this.paneManager.connectVariableStore(this.variableStore);
@@ -250,6 +255,12 @@ class MudClient {
     if (!this.guiMode) {
       this.setupResizeHandler();
     }
+  }
+
+  private onSettingsChanged(_changedKeys: string[]): void {
+    // Settings are read on-the-fly when processing messages/input,
+    // so most changes take effect immediately after the file is reloaded.
+    // This hook is available for any settings that need special handling.
   }
 
   // Debounced variable change emitter for GUI mode
@@ -620,6 +631,9 @@ class MudClient {
       return;
     }
 
+    // Load profile for this character (if any)
+    this.loadCharacterProfile();
+
     this.appState = "client";
 
     // Set up scroll region: all but the last line
@@ -639,6 +653,57 @@ class MudClient {
     // Connect
     this.client.connect(this.currentConnection.host, this.currentConnection.port);
     this.redrawInput();
+  }
+
+  /**
+   * Load the profile associated with the current character (if any)
+   * and update engines to use filtered configs.
+   */
+  private loadCharacterProfile(): void {
+    if (!this.currentCharacter) {
+      this.currentProfile = null;
+      return;
+    }
+
+    // Check if character has a profile assigned
+    const profileId = this.currentCharacter.profileId;
+    if (profileId) {
+      this.currentProfile = this.profileStore.getProfile(profileId);
+    } else {
+      this.currentProfile = null; // Global mode - all items active
+    }
+
+    // Reload configs with profile filtering
+    this.reloadConfigsWithProfile();
+  }
+
+  /**
+   * Reload all configs applying the current profile filter.
+   * This updates the trigger engine, timer engine, pane manager, etc.
+   */
+  private reloadConfigsWithProfile(): void {
+    const profile = this.currentProfile;
+
+    // Reload pattern groups (filtered by profile)
+    const patternsConfig = this.patternsConfig.getConfigFiltered(profile?.patternGroups);
+
+    // Reload triggers (filtered by profile) and update engine
+    const triggersConfig = this.triggerConfigStore.getConfigFiltered(profile?.triggers);
+    this.triggerEngine.updateIfChanged(triggersConfig, patternsConfig.groups);
+
+    // Reload timers (filtered by profile) and update engine
+    const timersConfig = this.timerConfigStore.getConfigFiltered(profile?.timers);
+    this.timerEngine.updateIfChanged(timersConfig);
+
+    // Reload panes (filtered by profile) and update manager
+    const filteredPanes = this.paneConfig.getPanesFiltered(profile?.panes);
+    this.paneManager.updatePanes(filteredPanes);
+
+    // Reload classifier with filtered patterns
+    this.classifier.updateIfChanged(patternsConfig);
+
+    // Note: Aliases are filtered at use-time, not here
+    // Note: Gauges are also filtered at render-time for the status line
   }
 
   // Calculate how many terminal lines the input will occupy
@@ -2806,8 +2871,8 @@ class MudClient {
       return;
     }
 
-    // Expand aliases
-    const expanded = this.charManager.expandAlias(trimmed);
+    // Expand aliases (filtered by profile if set)
+    const expanded = this.charManager.expandAlias(trimmed, this.currentProfile?.aliases);
 
     // Check for command chaining in expanded result (alias may contain separators)
     if (!isChained && separator && separator !== "none" && expanded.includes(separator)) {

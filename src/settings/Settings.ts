@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, watch, FSWatcher } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { EventEmitter } from "events";
 
 export type StatusPosition = "prompt" | "right" | "hidden";
 export type TimestampMode = "hidden" | "time" | "datetime";
@@ -50,17 +51,40 @@ const DESCRIPTIONS: Record<keyof AppSettings, string> = {
   commandSeparator: "Separator for chaining commands (e.g., 'e;;e;;n'). Use 'none' to disable",
 };
 
-export class SettingsManager {
+export class SettingsManager extends EventEmitter {
   private settings: AppSettings;
   private configPath: string;
+  private watcher: FSWatcher | null = null;
+  private debounceTimer: NodeJS.Timeout | null = null;
+  private isSaving = false;
 
   constructor() {
+    super();
     const baseDir = join(homedir(), ".config", "mud-client");
     if (!existsSync(baseDir)) {
       mkdirSync(baseDir, { recursive: true });
     }
     this.configPath = join(baseDir, "settings.json");
     this.settings = this.load();
+    this.startWatching();
+  }
+
+  private startWatching(): void {
+    try {
+      this.watcher = watch(this.configPath, (eventType) => {
+        if (eventType === "change" && !this.isSaving) {
+          // Debounce to avoid multiple reloads for a single save
+          if (this.debounceTimer) {
+            clearTimeout(this.debounceTimer);
+          }
+          this.debounceTimer = setTimeout(() => {
+            this.reload();
+          }, 100);
+        }
+      });
+    } catch {
+      // File might not exist yet, that's ok
+    }
   }
 
   private load(): AppSettings {
@@ -77,8 +101,41 @@ export class SettingsManager {
     }
   }
 
+  reload(): void {
+    const oldSettings = { ...this.settings };
+    this.settings = this.load();
+
+    // Find which settings changed
+    const changedKeys: (keyof AppSettings)[] = [];
+    for (const key of Object.keys(this.settings) as (keyof AppSettings)[]) {
+      if (oldSettings[key] !== this.settings[key]) {
+        changedKeys.push(key);
+      }
+    }
+
+    if (changedKeys.length > 0) {
+      this.emit("changed", changedKeys, this.settings);
+    }
+  }
+
   private save(): void {
+    this.isSaving = true;
     writeFileSync(this.configPath, JSON.stringify(this.settings, null, 2));
+    // Reset flag after a short delay to ignore the file change event we just caused
+    setTimeout(() => {
+      this.isSaving = false;
+    }, 150);
+  }
+
+  close(): void {
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = null;
+    }
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
   }
 
   get<K extends keyof AppSettings>(key: K): AppSettings[K] {

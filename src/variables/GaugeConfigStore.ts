@@ -133,4 +133,30 @@ export class GaugeConfigStore {
     this.config.statusLine.enabled = enabled;
     this.save();
   }
+
+  /**
+   * Get gauges filtered by profile.
+   * If gaugeVars is undefined, returns all gauges.
+   * If gaugeVars is an array, returns only gauges whose variables are in the array.
+   */
+  getGaugesFiltered(gaugeVars: string[] | undefined): GaugeConfig[] {
+    this.config = this.load();
+    if (gaugeVars === undefined) {
+      return [...this.config.gauges];
+    }
+    const varSet = new Set(gaugeVars);
+    return this.config.gauges.filter(g => varSet.has(g.variable));
+  }
+
+  /**
+   * Get config filtered by profile.
+   * If gaugeVars is undefined, returns all gauges.
+   * If gaugeVars is an array, returns only gauges whose variables are in the array.
+   */
+  getConfigFiltered(gaugeVars: string[] | undefined): GaugesConfig {
+    return {
+      gauges: this.getGaugesFiltered(gaugeVars),
+      statusLine: { ...this.config.statusLine },
+    };
+  }
 }

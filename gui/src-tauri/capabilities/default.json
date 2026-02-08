@@ -32,9 +32,22 @@
       ]
     },
     {
+      "identifier": "fs:allow-read-dir",
+      "allow": [
+        { "path": "$HOME/.config/mud-client" },
+        { "path": "$HOME/.config/mud-client/**" }
+      ]
+    },
+    {
       "identifier": "fs:allow-mkdir",
       "allow": [
         { "path": "$HOME/.config/mud-client" },
+        { "path": "$HOME/.config/mud-client/**" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-remove",
+      "allow": [
         { "path": "$HOME/.config/mud-client/**" }
       ]
     },

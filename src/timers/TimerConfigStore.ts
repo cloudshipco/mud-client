@@ -102,4 +102,29 @@ export class TimerConfigStore {
       timers: [...this.config.timers],
     };
   }
+
+  /**
+   * Get timers filtered by profile.
+   * If timerNames is undefined, returns all timers.
+   * If timerNames is an array, returns only timers whose names are in the array.
+   */
+  getTimersFiltered(timerNames: string[] | undefined): TimerDefinition[] {
+    if (timerNames === undefined) {
+      return [...this.config.timers];
+    }
+    const nameSet = new Set(timerNames);
+    return this.config.timers.filter(t => nameSet.has(t.name));
+  }
+
+  /**
+   * Get timers config filtered by profile.
+   * If timerNames is undefined, returns all timers.
+   * If timerNames is an array, returns only timers whose names are in the array.
+   */
+  getConfigFiltered(timerNames: string[] | undefined): TimersConfig {
+    this.config = this.load();
+    return {
+      timers: this.getTimersFiltered(timerNames),
+    };
+  }
 }
