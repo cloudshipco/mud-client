@@ -55,7 +55,7 @@ const lightTheme: TerminalTheme = {
   blue: '#4078f2',
   magenta: '#a626a4',
   cyan: '#0184bc',
-  white: '#a0a1a7',
+  white: '#696c77',
   brightBlack: '#4f525e',
   brightRed: '#e06c75',
   brightGreen: '#98c379',
@@ -63,7 +63,7 @@ const lightTheme: TerminalTheme = {
   brightBlue: '#61afef',
   brightMagenta: '#c678dd',
   brightCyan: '#56b6c2',
-  brightWhite: '#ffffff',
+  brightWhite: '#383a42',
 };
 
 /**

@@ -2687,8 +2687,15 @@ function bindCharacterInputs() {
       const connData = connectionsWithCharacters.find(c => c.connection.id === editingCharacter!.connectionId);
       const character = connData?.characters.find(c => c.id === editingCharacter!.characterId);
       if (character) {
-        character.colorScheme = (colorSchemeSelect.value as ColorSchemeName) || undefined;
+        const newScheme = (colorSchemeSelect.value as ColorSchemeName) || 'dark';
+        character.colorScheme = newScheme;
         await saveCharacter(character);
+        // Emit event to apply the color scheme immediately to any connected windows
+        emit('character-colorscheme-changed', {
+          characterId: character.id,
+          connectionId: character.connectionId,
+          colorScheme: newScheme,
+        });
       }
     });
   }

@@ -137,9 +137,14 @@ export class InputLine {
   ]);
 
   private handleKeyDown(e: KeyboardEvent): void {
-    // Allow Cmd/Ctrl+, through for settings menu accelerator
-    if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-      return; // Let native menu handle it
+    // Allow Cmd/Ctrl+key through for native menu accelerators
+    // This includes: , (settings), N (new window), W (close window), Q (quit), etc.
+    // Exclude cut/copy/paste/undo/select-all which should be handled by input field
+    if ((e.metaKey || e.ctrlKey) && e.key.length === 1) {
+      const key = e.key.toLowerCase();
+      if (!['c', 'v', 'x', 'a', 'z'].includes(key)) {
+        return; // Let native menu handle it
+      }
     }
 
     // In passthrough mode, send all keys directly to PTY

@@ -2,31 +2,40 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::thread;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri::menu::{Menu, Submenu, PredefinedMenuItem, MenuItem};
 use tauri::WebviewUrl;
+use tauri::webview::WebviewWindowBuilder;
+use uuid::Uuid;
 
-struct PtyWriter(Arc<Mutex<Option<Box<dyn Write + Send>>>>);
-struct PtyMaster(Arc<Mutex<Option<Box<dyn portable_pty::MasterPty + Send>>>>);
+/// Holds the writer and master for a single PTY instance
+struct PtyInstance {
+    writer: Box<dyn Write + Send>,
+    master: Box<dyn portable_pty::MasterPty + Send>,
+}
+
+/// Registry of all PTY instances, keyed by window label
+struct PtyRegistry(Mutex<HashMap<String, PtyInstance>>);
 
 #[tauri::command]
-fn write_to_pty(writer: tauri::State<PtyWriter>, data: String) {
-    if let Ok(mut guard) = writer.0.lock() {
-        if let Some(ref mut w) = *guard {
-            let _ = w.write_all(data.as_bytes());
-            let _ = w.flush();
+fn write_to_pty(registry: tauri::State<PtyRegistry>, window_id: String, data: String) {
+    if let Ok(mut guard) = registry.0.lock() {
+        if let Some(pty) = guard.get_mut(&window_id) {
+            let _ = pty.writer.write_all(data.as_bytes());
+            let _ = pty.writer.flush();
         }
     }
 }
 
 #[tauri::command]
-fn resize_pty(master: tauri::State<PtyMaster>, cols: u16, rows: u16) {
-    if let Ok(guard) = master.0.lock() {
-        if let Some(ref m) = *guard {
-            let _ = m.resize(PtySize {
+fn resize_pty(registry: tauri::State<PtyRegistry>, window_id: String, cols: u16, rows: u16) {
+    if let Ok(guard) = registry.0.lock() {
+        if let Some(pty) = guard.get(&window_id) {
+            let _ = pty.master.resize(PtySize {
                 rows,
                 cols,
                 pixel_width: 0,
@@ -37,8 +46,8 @@ fn resize_pty(master: tauri::State<PtyMaster>, cols: u16, rows: u16) {
 }
 
 #[tauri::command]
-fn set_window_title(app: AppHandle, title: String) {
-    if let Some(window) = app.get_webview_window("main") {
+fn set_window_title(app: AppHandle, window_id: String, title: String) {
+    if let Some(window) = app.get_webview_window(&window_id) {
         let _ = window.set_title(&title);
     }
 }
@@ -63,8 +72,8 @@ fn get_sidecar_path() -> Option<std::path::PathBuf> {
 #[tauri::command]
 fn spawn_pty(
     app: AppHandle,
-    writer_state: tauri::State<PtyWriter>,
-    master_state: tauri::State<PtyMaster>,
+    registry: tauri::State<PtyRegistry>,
+    window_id: String,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
@@ -72,6 +81,7 @@ fn spawn_pty(
 
     // Debug: print sidecar path
     eprintln!("[Tauri] Sidecar path: {:?}", sidecar_path);
+    eprintln!("[Tauri] Window ID: {}", window_id);
 
     // Create PTY with the correct initial size
     let pty_system = native_pty_system();
@@ -110,18 +120,18 @@ fn spawn_pty(
         .take_writer()
         .map_err(|e| format!("Failed to get writer: {}", e))?;
 
-    // Store state
+    // Store PTY instance in registry
     {
-        let mut w = writer_state.0.lock().unwrap();
-        *w = Some(writer);
-    }
-    {
-        let mut m = master_state.0.lock().unwrap();
-        *m = Some(pair.master);
+        let mut reg = registry.0.lock().unwrap();
+        reg.insert(window_id.clone(), PtyInstance {
+            writer,
+            master: pair.master,
+        });
     }
 
-    // Read from PTY and emit to frontend
+    // Read from PTY and emit to frontend (window-specific event)
     let app_handle = app.clone();
+    let event_name = format!("pty-output-{}", window_id);
     thread::spawn(move || {
         let mut reader = reader;
         let mut buf = [0u8; 4096];
@@ -130,7 +140,7 @@ fn spawn_pty(
                 Ok(0) => break,
                 Ok(n) => {
                     let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let _ = app_handle.emit("pty-output", data);
+                    let _ = app_handle.emit(&event_name, data);
                 }
                 Err(_) => break,
             }
@@ -143,6 +153,38 @@ fn spawn_pty(
     });
 
     Ok(())
+}
+
+/// Remove a PTY instance from the registry (cleanup on window close)
+#[tauri::command]
+fn destroy_pty(registry: tauri::State<PtyRegistry>, window_id: String) {
+    if let Ok(mut guard) = registry.0.lock() {
+        guard.remove(&window_id);
+        eprintln!("[Tauri] Destroyed PTY for window: {}", window_id);
+    }
+}
+
+/// Create a new main window with its own PTY
+#[tauri::command]
+fn create_new_window(app: AppHandle) -> Result<String, String> {
+    let label = format!("main-{}", Uuid::new_v4());
+
+    WebviewWindowBuilder::new(
+        &app,
+        &label,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Twilite")
+    .inner_size(1024.0, 768.0)
+    .min_inner_size(640.0, 480.0)
+    .resizable(true)
+    .title_bar_style(tauri::TitleBarStyle::Overlay)
+    .hidden_title(true)
+    .build()
+    .map_err(|e| format!("Failed to create window: {}", e))?;
+
+    eprintln!("[Tauri] Created new window: {}", label);
+    Ok(label)
 }
 
 fn open_settings_window(app: &AppHandle) {
@@ -178,8 +220,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(PtyWriter(Arc::new(Mutex::new(None))))
-        .manage(PtyMaster(Arc::new(Mutex::new(None))))
+        .manage(PtyRegistry(Mutex::new(HashMap::new())))
         .setup(|app| {
             // Create app menu with standard macOS items
             let settings_item = MenuItem::with_id(
@@ -224,11 +265,21 @@ fn main() {
                 ],
             )?;
 
+            let new_window_item = MenuItem::with_id(
+                app,
+                "new_window",
+                "New Window",
+                true,
+                Some("CmdOrCtrl+N"),
+            )?;
+
             let window_submenu = Submenu::with_items(
                 app,
                 "Window",
                 true,
                 &[
+                    &new_window_item,
+                    &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::minimize(app, None)?,
                     &PredefinedMenuItem::maximize(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
@@ -242,11 +293,54 @@ fn main() {
             Ok(())
         })
         .on_menu_event(|app, event| {
-            if event.id().as_ref() == "settings" {
-                open_settings_window(app);
+            match event.id().as_ref() {
+                "settings" => {
+                    open_settings_window(app);
+                }
+                "new_window" => {
+                    let label = format!("main-{}", Uuid::new_v4());
+                    if let Err(e) = WebviewWindowBuilder::new(
+                        app,
+                        &label,
+                        WebviewUrl::App("index.html".into()),
+                    )
+                    .title("Twilite")
+                    .inner_size(1024.0, 768.0)
+                    .min_inner_size(640.0, 480.0)
+                    .resizable(true)
+                    .title_bar_style(tauri::TitleBarStyle::Overlay)
+                    .hidden_title(true)
+                    .build()
+                    {
+                        eprintln!("Failed to create new window: {}", e);
+                    } else {
+                        eprintln!("[Tauri] Created new window from menu: {}", label);
+                    }
+                }
+                _ => {}
             }
         })
-        .invoke_handler(tauri::generate_handler![write_to_pty, resize_pty, spawn_pty, set_window_title])
+        .invoke_handler(tauri::generate_handler![
+            write_to_pty,
+            resize_pty,
+            spawn_pty,
+            set_window_title,
+            destroy_pty,
+            create_new_window
+        ])
+        .on_window_event(|window, event| {
+            // Clean up PTY when window is destroyed
+            if let tauri::WindowEvent::Destroyed = event {
+                let label = window.label().to_string();
+                if let Some(registry) = window.try_state::<PtyRegistry>() {
+                    if let Ok(mut guard) = registry.0.lock() {
+                        if guard.remove(&label).is_some() {
+                            eprintln!("[Tauri] Cleaned up PTY for destroyed window: {}", label);
+                        }
+                    }
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

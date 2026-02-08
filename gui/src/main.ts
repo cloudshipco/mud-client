@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen, emit } from "@tauri-apps/api/event";
+import { listen, emit, UnlistenFn } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, Window } from "@tauri-apps/api/window";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import {
@@ -238,6 +238,10 @@ async function installPendingUpdate(showMessage: (msg: string) => void) {
 }
 
 async function main() {
+  // Get the current window and its label for PTY routing
+  const currentWindow = getCurrentWindow();
+  const windowLabel = currentWindow.label;
+
   // Create app container immediately (before async operations)
   const appContainer = document.createElement("div");
   appContainer.className = "app-container";
@@ -328,7 +332,7 @@ async function main() {
     onInput: (data: string) => {
       // If disconnected and user presses Enter with empty input, show menu
       if (!isConnected && data === "\r") {
-        invoke("write_to_pty", { data: "\r" }); // Trigger menu via backend
+        invoke("write_to_pty", { windowId: windowLabel, data: "\r" }); // Trigger menu via backend
         return;
       }
       // Intercept /update command
@@ -338,7 +342,7 @@ async function main() {
         installPendingUpdate((msg) => mainOutput.addClientMessage(msg));
         return;
       }
-      invoke("write_to_pty", { data });
+      invoke("write_to_pty", { windowId: windowLabel, data });
     },
     onResize: () => {
       // When input area resizes, maintain scroll position
@@ -355,11 +359,11 @@ async function main() {
     // Send navigation keys to move to the clicked item
     const arrowKey = delta > 0 ? "\x1b[B" : "\x1b[A"; // Down or Up
     for (let i = 0; i < Math.abs(delta); i++) {
-      invoke("write_to_pty", { data: arrowKey });
+      invoke("write_to_pty", { windowId: windowLabel, data: arrowKey });
     }
 
     // Send Enter to select the item
-    invoke("write_to_pty", { data: "\r" });
+    invoke("write_to_pty", { windowId: windowLabel, data: "\r" });
   });
   const promptRenderer = new PromptRenderer(document.body);
 
@@ -433,10 +437,12 @@ async function main() {
   // Track connection info for window title
   let currentCharacter: string | null = null;
   let currentHost: string | null = null;
+  // Track active character color scheme (if any) to prevent global settings from overriding
+  let activeCharacterColorScheme: ColorSchemeName | null = null;
 
   function updateWindowTitle() {
     if (currentCharacter && currentHost) {
-      invoke("set_window_title", { title: `${currentHost} - ${currentCharacter}` });
+      invoke("set_window_title", { windowId: windowLabel, title: `${currentHost} - ${currentCharacter}` });
     }
   }
 
@@ -604,6 +610,10 @@ async function main() {
         currentCharacter = event.character || null;
         currentHost = event.host || null;
         isConnected = event.connected;
+        // Clear character color scheme when disconnecting
+        if (!event.connected) {
+          activeCharacterColorScheme = null;
+        }
         updateWindowTitle();
         updateStatusBar(event.connected, event.character, event.host);
         // Hide dialogs and exit passthrough mode when we enter client mode
@@ -697,8 +707,9 @@ async function main() {
         break;
       }
       case "colorScheme": {
-        // Apply color scheme for this character
-        const scheme = getColorScheme(event.scheme as ColorSchemeName);
+        // Apply color scheme for this character and track it
+        activeCharacterColorScheme = event.scheme as ColorSchemeName;
+        const scheme = getColorScheme(activeCharacterColorScheme);
         applyThemeColors(scheme.theme);
         break;
       }
@@ -714,8 +725,9 @@ async function main() {
   // Buffer for accumulating partial JSON lines
   let lineBuffer = "";
 
-  // Set up PTY output listener
-  listen<string>("pty-output", (event) => {
+  // Set up PTY output listener (window-specific event)
+  const ptyEventName = `pty-output-${windowLabel}`;
+  listen<string>(ptyEventName, (event) => {
     const data = event.payload;
 
     // Accumulate data and process complete lines
@@ -763,7 +775,7 @@ async function main() {
   }).then(() => {
     // Spawn PTY after listener is set up
     // Use a fixed size since we're not using xterm anymore
-    invoke("spawn_pty", { cols: 120, rows: 40 }).catch((error) => {
+    invoke("spawn_pty", { windowId: windowLabel, cols: 120, rows: 40 }).catch((error) => {
       mainOutput.addClientMessage(`Error: ${error}`);
     });
   });
@@ -857,6 +869,23 @@ async function main() {
     currentNotificationsConfig = event.payload;
   });
 
+  // Listen for character color scheme changes from settings
+  listen<{ characterId: string; connectionId: string; colorScheme: ColorSchemeName }>(
+    "character-colorscheme-changed",
+    (event) => {
+      // Apply if we're connected and the character name matches
+      // (character name is typically the same as characterId slug)
+      if (isConnected && currentCharacter) {
+        const charIdFromName = currentCharacter.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+        if (charIdFromName === event.payload.characterId) {
+          activeCharacterColorScheme = event.payload.colorScheme;
+          const scheme = getColorScheme(activeCharacterColorScheme);
+          applyThemeColors(scheme.theme);
+        }
+      }
+    }
+  );
+
   // Apply settings to the app using CSS custom properties
   function applySettings(newSettings: TerminalSettings) {
     const root = document.documentElement;
@@ -866,8 +895,10 @@ async function main() {
     root.style.setProperty("--font-weight-bold", String(newSettings.fontWeightBold));
     root.style.setProperty("--line-height", `${newSettings.lineHeight}`);
     root.style.setProperty("--letter-spacing", `${newSettings.letterSpacing}px`);
-    // Update ANSI color palette (also sets --theme-bg)
-    applyThemeColors(newSettings.theme);
+    // Update ANSI color palette, but only if no character-specific scheme is active
+    if (!activeCharacterColorScheme) {
+      applyThemeColors(newSettings.theme);
+    }
   }
 
   // Global key handling for menus, prompts, scrolling, and search
@@ -904,14 +935,14 @@ async function main() {
 
       if (keyMap[e.key]) {
         e.preventDefault();
-        invoke("write_to_pty", { data: keyMap[e.key] });
+        invoke("write_to_pty", { windowId: windowLabel, data: keyMap[e.key] });
         return;
       }
 
       // Single character keys (for typing in prompts, vim-style j/k navigation)
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
-        invoke("write_to_pty", { data: e.key });
+        invoke("write_to_pty", { windowId: windowLabel, data: e.key });
         return;
       }
     }
@@ -935,11 +966,11 @@ async function main() {
     }
   });
 
-  // Initial focus - ensure main window has focus after floating panes open
+  // Initial focus - ensure this window has focus after floating panes open
   inputLine.focus();
-  // Small delay to ensure floating panes have been created, then refocus main window
+  // Small delay to ensure floating panes have been created, then refocus this window
   setTimeout(async () => {
-    await getCurrentWindow().setFocus();
+    await currentWindow.setFocus();
     inputLine.focus();
   }, 100);
 
@@ -947,6 +978,7 @@ async function main() {
   setTimeout(() => {
     checkForUpdates((msg) => mainOutput.addClientMessage(msg));
   }, 3000);
+
 }
 
 main().catch(console.error);
