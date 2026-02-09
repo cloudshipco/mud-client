@@ -137,10 +137,11 @@ export class InputLine {
   ]);
 
   private handleKeyDown(e: KeyboardEvent): void {
-    // Allow Cmd/Ctrl+key through for native menu accelerators
-    // This includes: , (settings), N (new window), W (close window), Q (quit), etc.
-    // Exclude cut/copy/paste/undo/select-all which should be handled by input field
-    if ((e.metaKey || e.ctrlKey) && e.key.length === 1) {
+    // Allow Cmd+key (macOS) through for native menu accelerators
+    // This includes: Cmd+, (settings), Cmd+N (new window), Cmd+W (close), Cmd+Q (quit)
+    // Exclude clipboard shortcuts (Cmd+C/V/X/A/Z) which should be handled by input field
+    // Note: Ctrl+key is NOT included here - those are terminal control sequences (Ctrl+R, etc.)
+    if (e.metaKey && !e.ctrlKey && e.key.length === 1) {
       const key = e.key.toLowerCase();
       if (!['c', 'v', 'x', 'a', 'z'].includes(key)) {
         return; // Let native menu handle it
